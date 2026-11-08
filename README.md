@@ -47,7 +47,7 @@ Clawds en tu escritorio: **uno por cada sesión de Claude Code**. Te dejan ver d
 ### Desde el código
 
 ```bash
-git clone https://github.com/alesito-gv/claude-companion
+git clone https://github.com/alejandrogvaldivia/claude-companion
 cd claude-companion
 npm install        # también compila el vigilante (bin/clawd.exe) con el compilador de C# de Windows
 npm start

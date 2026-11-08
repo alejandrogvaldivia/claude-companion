@@ -59,14 +59,14 @@
     "publish": [
       {
         "provider": "github",
-        "owner": "alesito-gv",
+        "owner": "alejandrogvaldivia",
         "repo": "claude-companion"
       }
     ]
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/alesito-gv/claude-companion.git"
+    "url": "https://github.com/alejandrogvaldivia/claude-companion.git"
   },
-  "homepage": "https://github.com/alesito-gv/claude-companion"
+  "homepage": "https://github.com/alejandrogvaldivia/claude-companion"
 }
