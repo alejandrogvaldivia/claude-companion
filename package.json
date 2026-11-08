@@ -1,7 +1,7 @@
 {
   "name": "claude-companion",
   "productName": "Claude Companion",
-  "version": "1.1.4",
+  "version": "1.2.0",
   "description": "Clawds en tu escritorio: uno por cada sesión de Claude Code, con su estado, su lista de tareas y una plática propia. Proyecto de fans, no oficial.",
   "main": "app/main.js",
   "author": "Claude Companion contributors",
