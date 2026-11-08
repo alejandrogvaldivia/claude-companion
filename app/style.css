@@ -188,7 +188,6 @@ html, body {
   padding: 6px 8px 26px 8px; box-sizing: border-box;
   scrollbar-gutter: stable;
 }
-#thread.scrolled { -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 22px); }
 #thread::-webkit-scrollbar { width: 6px; }
 #thread::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .35); border-radius: 3px; }
 #thread::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, .6); }
@@ -454,3 +453,21 @@ body.shared #group { display: flex; }
 .files { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
 .file-chip { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 3px 9px; border: 1.5px solid var(--ink); border-radius: 9px; background: #fff; color: var(--ink); font: 600 11px 'Segoe UI', sans-serif; cursor: pointer; box-shadow: 2px 2px 0 var(--ink); }
 .file-chip:hover { background: var(--orange); color: #fff; }
+
+/* donde se corta lo que se puede scrollear: se desvanece (arriba, abajo o ambos) */
+#thread.fade-top, #gfeed.fade-top { -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 34px); mask-image: linear-gradient(to bottom, transparent 0, #000 34px); }
+#thread.fade-bot, #gfeed.fade-bot { -webkit-mask-image: linear-gradient(to top, transparent 0, #000 34px); mask-image: linear-gradient(to top, transparent 0, #000 34px); }
+#thread.fade-top.fade-bot, #gfeed.fade-top.fade-bot {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 34px, #000 calc(100% - 34px), transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 34px, #000 calc(100% - 34px), transparent 100%);
+}
+/* dentro de un globo que se abrió (lo que va diciendo): el borde del globo se queda, el texto se desvanece */
+.say.open::before, .say.open::after, .gmsg.gsay .gb.open::before, .gmsg.gsay .gb.open::after {
+  content: ''; display: block; position: sticky; height: 22px; pointer-events: none; z-index: 1;
+  margin-left: -12px; margin-right: -12px; opacity: 0; transition: opacity .2s ease;
+}
+.say.open::before, .gmsg.gsay .gb.open::before { top: -6px; margin-top: -6px; margin-bottom: -16px; background: linear-gradient(to bottom, var(--paper) 25%, transparent); }
+.say.open::after, .gmsg.gsay .gb.open::after { bottom: -7px; margin-bottom: -7px; margin-top: -15px; background: linear-gradient(to top, var(--paper) 25%, transparent); }
+.gmsg.gsay .gb.open::before { background: linear-gradient(to bottom, #f6efe5 25%, transparent); }
+.gmsg.gsay .gb.open::after { background: linear-gradient(to top, #f6efe5 25%, transparent); }
+.say.open.fade-top::before, .say.open.fade-bot::after, .gmsg.gsay .gb.open.fade-top::before, .gmsg.gsay .gb.open.fade-bot::after { opacity: 1; }

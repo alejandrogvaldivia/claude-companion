@@ -817,7 +817,7 @@ el.thread.addEventListener('click', (e) => {
   else if (b.classList.contains('model-tag')) { e.stopPropagation(); api.modelMenu(); }
   else if (b.classList.contains('x')) { threadDismissed = true; closeTalk(); scheduleHide(); }
 });
-el.thread.addEventListener('scroll', () => el.thread.classList.toggle('scrolled', el.thread.scrollTop > 4));
+el.thread.addEventListener('scroll', () => el.thread.classList.toggle('scrolled', el.thread.scrollTop > 4));   // (los degradados los pone fadeEdges)
 
 // ---------- modelo ----------
 let model = { label: 'Sonnet 5.5' };
@@ -1163,6 +1163,27 @@ const api0 = window.companion;
 document.documentElement.style.setProperty('--still-url', `url("${api0.assetUrl('Clawd-Still.png')}")`);
 const PAGE = { shared: false, mode: 'desktop', pets: new Map() };
 const esc0 = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+// degradado donde se corta lo que se puede scrollear: arriba si hay más arriba, abajo si hay más abajo
+const FADE_SEL = '#thread, #gfeed, .say.open, .gmsg.gsay .gb.open';
+function fadeEdges(n) {
+  const top = n.scrollTop > 2, bot = n.scrollHeight - n.scrollTop - n.clientHeight > 2;
+  if (n.classList.contains('fade-top') !== top) n.classList.toggle('fade-top', top);
+  if (n.classList.contains('fade-bot') !== bot) n.classList.toggle('fade-bot', bot);
+}
+let fadeQueued = false;
+function fadeAll() {
+  if (fadeQueued) return;
+  fadeQueued = true;
+  requestAnimationFrame(() => {
+    fadeQueued = false;
+    document.querySelectorAll(FADE_SEL).forEach(fadeEdges);
+    document.querySelectorAll('.fade-top, .fade-bot').forEach((n) => { if (!n.matches(FADE_SEL)) n.classList.remove('fade-top', 'fade-bot'); });
+  });
+}
+document.addEventListener('scroll', (e) => { if (e.target instanceof Element && e.target.matches(FADE_SEL)) fadeEdges(e.target); }, true);
+new MutationObserver(fadeAll).observe(document.documentElement, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['class'] });
+window.addEventListener('resize', fadeAll);
+
 // archivos que creó un Clawd: botoncitos para abrirlos
 const FILE_ICON = { pdf: '\u{1F4D5}', txt: '\u{1F4DD}', md: '\u{1F4DD}', html: '\u{1F310}', png: '\u{1F5BC}\uFE0F' };
 function fileChips(files) {
