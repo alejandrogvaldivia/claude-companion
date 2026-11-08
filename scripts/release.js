@@ -17,7 +17,7 @@ const root = path.join(__dirname, '..');
 const run = (cmd, args, opts) => execFileSync(cmd, args, { cwd: root, stdio: 'inherit', shell: process.platform === 'win32' && cmd === 'npm', ...opts });
 const out = (cmd, args) => execFileSync(cmd, args, { cwd: root, encoding: 'utf8' }).trim();
 function gh() {
-  for (const c of ['gh', 'C:\Program Files\GitHub CLI\gh.exe']) {
+  for (const c of ['gh', path.join(process.env.ProgramFiles || 'C:/Program Files', 'GitHub CLI', 'gh.exe')]) {
     try { execFileSync(c, ['--version'], { stdio: 'ignore' }); return c; } catch (_) { /* siguiente */ }
   }
   throw new Error('No encontré GitHub CLI (gh). Instálalo y corre "gh auth login".');
@@ -30,7 +30,9 @@ function bump(v, how) {
   return `${a}.${b}.${c + 1}`;
 }
 
-const [how, notes] = process.argv.slice(2);
+// (npm puede partir las notas en palabras: se vuelven a juntar)
+const [how, ...rest] = process.argv.slice(2);
+const notes = rest.join(' ').trim();
 const GH = gh();
 execFileSync(GH, ['auth', 'status'], { stdio: 'ignore' });               // falla si no has iniciado sesión
 const pkgFile = path.join(root, 'package.json');
