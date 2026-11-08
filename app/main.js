@@ -138,7 +138,8 @@ process.on('uncaughtException', (e) => log('error: ' + (e && e.stack ? e.stack.s
 if (argv.includes('--uninstall')) {
   app.whenReady().then(() => {
     try { setup.uninstallHooks(); log('desinstalación: hooks quitados'); } catch (e) { log('desinstalación: ' + e); }
-    try { app.setLoginItemSettings({ openAtLogin: false, path: process.execPath, args: loginArgs(), name: APP_NAME }); } catch (_) { /* nada */ }
+    // (en pruebas no se toca el inicio con Windows: lo comparte con la app instalada)
+    if (!process.env.COMPANION_CFG) { try { app.setLoginItemSettings({ openAtLogin: false, path: process.execPath, args: loginArgs(), name: APP_NAME }); } catch (_) { /* nada */ } }
     app.exit(0);
   });
   return;
@@ -2130,7 +2131,7 @@ async function firstRun() {
   try {
     if (setup.hooksInstalled()) { setup.installHooks(process.execPath, HOOK_SRC); if (!cfg.hooksOn) { cfg.hooksOn = true; saveCfg(); } }
     else if (cfg.hooksOn) { setup.installHooks(process.execPath, HOOK_SRC); log('hooks restaurados'); }
-    else if (!cfg.hooksAsked) await connectHooks(false);
+    else if (!cfg.hooksAsked) await connectHooks(process.env.COMPANION_TEST_AUTOCONNECT === '1');   // (en pruebas: sin preguntar)
   } catch (e) { log('hooks: ' + e); }
   refreshTray();
 }

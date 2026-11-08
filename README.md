@@ -22,6 +22,7 @@ Clawds en tu escritorio: **uno por cada sesión de Claude Code**. Te dejan ver d
 - **Platica con cada Clawd.** Le escribes y te contesta en segundo plano, con lo más reciente de su sesión como contexto (sin tocar la sesión original). Las pláticas se guardan.
   - **"Mandar a su sesión"** abre la sesión en Claude Desktop con lo platicado ya pegado en su caja de texto. Tú le das Enter.
   - **Clic en un Clawd** abre su sesión en Claude Desktop.
+- **Invoca Clawds.** El botón del Clawd con **+** trae un Clawd nuevo, con su propio nombre, color y plática, aunque no haya una sesión. Se queda hasta que lo despides con clic derecho; "Nueva conversación" también está en ese menú.
 - **Tres modos**, que se cambian desde el ícono de la bandeja:
   - **Escritorio:** cada Clawd en su ventana.
   - **Escritorio en grupo:** pasean juntos, conviven y tienen un **chat grupal** tipo WhatsApp con "Responder a ▾".
