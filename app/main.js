@@ -995,10 +995,14 @@ function sessionVisible(s) {
   return s.age < cfg.timing.hideMs;
 }
 const prio = (s) => (s.state === 'attention' ? 0 : s.state === 'working' ? 1 : 2);
+// platicar con su Clawd (o que esté contestando / repartiendo trabajo) también cuenta como actividad
+function chatActive(sid) {
+  return livePets().some((p) => p.sid === sid && ((p.chat && p.chat.proc) || Date.now() - (p.lastChatAt || 0) < cfg.timing.hideMs));
+}
 
 function reconcile(list) {
   const allow = petsAllowed();
-  const want = allow ? list.filter(sessionVisible).sort((a, b) => prio(a) - prio(b) || a.age - b.age).slice(0, cfg.maxPets) : [];
+  const want = allow ? list.filter((s) => sessionVisible(s) || chatActive(s.sid)).sort((a, b) => prio(a) - prio(b) || a.age - b.age).slice(0, cfg.maxPets) : [];
   const wantIds = new Set(want.map((s) => s.sid));
   // los que sobran: se despiden (con unos segundos de gracia por si la lectura falló)
   const extra = [];
@@ -1787,6 +1791,7 @@ function chatSend(p, text, opts) {
   }
   c.proc = proc;
   p.madeFiles = [];
+  p.lastChatAt = Date.now();
   const t0 = Date.now();
   let buf = '', gotResult = false, errTxt = '';
   const handle = (line) => {
@@ -1820,6 +1825,7 @@ function chatSend(p, text, opts) {
   proc.stderr.on('data', (d) => { errTxt += d.toString('utf8'); });
   proc.on('error', (e) => { log('chat spawn: ' + e); });
   proc.on('close', (code) => {
+    p.lastChatAt = Date.now();
     if (buf.trim()) handle(buf.trim());
     if (c.proc === proc) c.proc = null;
     groupDirty = true;
