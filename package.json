@@ -37,6 +37,10 @@
       {
         "from": "hook/hook.js",
         "to": "hook/hook.js"
+      },
+      {
+        "from": "mcp/companion-mcp.js",
+        "to": "mcp/companion-mcp.js"
       }
     ],
     "directories": {

@@ -23,6 +23,11 @@ Clawds en tu escritorio: **uno por cada sesión de Claude Code**. Te dejan ver d
   - **"Mandar a su sesión"** abre la sesión en Claude Desktop con lo platicado ya pegado en su caja de texto. Tú le das Enter.
   - **Clic en un Clawd** abre su sesión en Claude Desktop.
 - **Invoca Clawds.** El botón del Clawd con **+** trae un Clawd nuevo, con su propio nombre, color y plática, aunque no haya una sesión. Se queda hasta que lo despides con clic derecho; "Nueva conversación" también está en ese menú.
+- **Extensiones.** Clic derecho en un Clawd → **Extensiones** para prenderle las que ya tienes en Claude Desktop o Claude Code (por ejemplo, Obsidian). Así puedes tener un Clawd dedicado a tus notas. Con una extensión prendida, el Clawd puede leer **y cambiar** cosas en ella.
+- **Delegan entre ellos.** Pídele a cualquier Clawd varias cosas a la vez ("necesito X, Y y Z").
+  - Él reparte el trabajo e invoca **ayudantes**, uno por tarea, con el modelo adecuado: Haiku para lo sencillo, Sonnet para lo normal, Opus para lo difícil.
+  - Los ves llegar y trabajar. Al terminar le entregan su parte y se despiden, y él te da la respuesta final.
+  - Cada ayudante es una plática aparte con Claude, así que también cuenta para tu uso.
 - **Tres modos**, que se cambian desde el ícono de la bandeja:
   - **Escritorio:** cada Clawd en su ventana.
   - **Escritorio en grupo:** pasean juntos, conviven y tienen un **chat grupal** tipo WhatsApp con "Responder a ▾".

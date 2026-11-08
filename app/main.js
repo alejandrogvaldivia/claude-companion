@@ -1114,7 +1114,7 @@ function sendGroup() {
       id: p.id, name: rec.name || 'Clawd', hue: col.hue || 0, sat: col.sat === undefined ? 1 : col.sat, bright: col.bright || 1,
       model: mf.sure ? mf.fam[0].toUpperCase() + mf.fam.slice(1) : '', chatModel: modelInfo(c.model).label.split(' ')[0],
       chatBusy: !!c.proc, hasSession: !!p.sid, hasChat: !!(last && last.who !== 'sep'),
-      session: p.sid ? String((d && d.title) || (info && info.title) || '').slice(0, 40) : 'sin sesión',
+      session: (p.sid ? String((d && d.title) || (info && info.title) || '').slice(0, 40) : p.helper ? 'ayudante' : 'sin sesión') + (petExtensions(p).length ? ' · ' + petExtensions(p).map(extLabel).join(', ') : ''),
     };
   });
   const feed = [];
@@ -1124,7 +1124,8 @@ function sendGroup() {
     c.history.forEach((h, i) => { if (h.who === 'Claude') lastClaude = i; });
     c.history.forEach((h, i) => feed.push({
       k: `h${p.id}-${h.ts || 0}-${i}`, id: p.id, who: h.who === 'Yo' ? 'you' : h.who === 'sep' ? 'sep' : 'claude',
-      text: h.text || '', err: !!h.err, ts: h.ts || 0, last: i === lastClaude && !c.proc && !!c.cur,
+      text: h.text || '', err: !!h.err, ts: h.ts || 0, last: i === lastClaude && !c.proc && !!c.cur && !p.helper,
+      from: h.from || null,                       // si se lo pidió otro Clawd (delegar)
     }));
     if (p.sid) {
       const info = lastList.find((x) => x.sid === p.sid);
@@ -1499,6 +1500,9 @@ function describeTool(name, input) {
   if (name === 'WebFetch') return 'Leyendo una página…';
   if (name === 'Read') return 'Leyendo ' + (input.file_path ? path.basename(String(input.file_path)) : 'un archivo') + '…';
   if (name === 'Grep' || name === 'Glob') return 'Buscando en tus archivos…';
+  if (/^mcp__companion__/.test(name)) return 'Repartiendo el trabajo entre Clawds…';
+  const m = /^mcp__([^_]+(?:_[^_]+)*?)__(.+)$/.exec(name || '');
+  if (m) return `Usando ${extLabel(m[1])}…`;
   return 'Usando ' + name + '…';
 }
 function stopChat(p) {
@@ -1526,12 +1530,120 @@ function sessionContext(p) {
   }
   return '\n\n' + lines.join('\n');
 }
-function chatSend(p, text) {
+// =====================================================================
+//  Extensiones (servidores MCP) y la mini extensión propia "delegar"
+// =====================================================================
+// Las extensiones son las que ya tienes en Claude Desktop o en Claude Code; cada Clawd usa solo
+// las que le prendas (clic derecho → Extensiones).
+const COMPANION_MCP = path.join(RES, 'mcp', 'companion-mcp.js');
+function readExtensions() {
+  const out = {};
+  const files = [
+    path.join(process.env.APPDATA || '', 'Claude', 'claude_desktop_config.json'),
+    path.join(os.homedir(), '.claude.json'),
+  ];
+  for (const f of files) {
+    try {
+      const j = JSON.parse(fs.readFileSync(f, 'utf8').replace(/^﻿/, ''));
+      for (const [k, v] of Object.entries(j.mcpServers || {})) if (k !== 'companion' && v && !out[k]) out[k] = v;
+    } catch (_) { /* no está */ }
+  }
+  return out;
+}
+const extLabel = (n) => n.charAt(0).toUpperCase() + n.slice(1);
+function petExtensions(p) {
+  const all = readExtensions();
+  return (recOf(p).ext || []).filter((n) => all[n]);
+}
+// arma la configuración MCP de una plática: sus extensiones + "delegar" (los ayudantes no delegan)
+function mcpConfigFor(p, helper) {
+  const all = readExtensions();
+  const servers = {};
+  for (const n of petExtensions(p)) servers[n] = all[n];
+  if (!helper && api.port) {
+    servers.companion = {
+      type: 'stdio', command: process.execPath, args: [COMPANION_MCP],
+      env: { ELECTRON_RUN_AS_NODE: '1', COMPANION_PORT: String(api.port), COMPANION_TOKEN: api.token, COMPANION_PET: String(p.id) },
+    };
+  }
+  if (!Object.keys(servers).length) return null;
+  const dir = path.join(BASE, 'mcp');
+  fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, `clawd-${p.id}.json`);
+  fs.writeFileSync(file, JSON.stringify({ mcpServers: servers }, null, 2));
+  return { file, names: Object.keys(servers) };
+}
+
+// ---------- servidor local para "delegar" (solo 127.0.0.1, con contraseña de un solo arranque) ----------
+const http = require('http');
+const crypto = require('crypto');
+const api = { port: 0, token: crypto.randomBytes(16).toString('hex') };
+function startApi() {
+  const srv = http.createServer((req, res) => {
+    const done = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(obj)); };
+    if (req.method !== 'POST' || req.url !== '/delegar') return done(404, { error: 'no' });
+    let body = '';
+    req.on('data', (c) => { body += c; if (body.length > 1e6) req.destroy(); });
+    req.on('end', async () => {
+      let j; try { j = JSON.parse(body); } catch (_) { return done(400, { error: 'json' }); }
+      if (j.token !== api.token) return done(403, { error: 'contraseña' });
+      const from = pets.get(Number(j.from));
+      try { done(200, { resultados: await delegate(from, Array.isArray(j.tareas) ? j.tareas : []) }); }
+      catch (e) { done(500, { error: String(e.message || e) }); }
+    });
+  });
+  srv.listen(0, '127.0.0.1', () => { api.port = srv.address().port; log(`delegar: escuchando en 127.0.0.1:${api.port}`); });
+  srv.on('error', (e) => log('delegar: ' + e));
+}
+
+// ---------- ayudantes: llegan, hacen su parte, la entregan y se van ----------
+const HELPER_MODELS = { haiku: 'claude-haiku-5-5', sonnet: 'claude-sonnet-5-5', opus: 'claude-opus-5-5' };
+async function delegate(from, tareas) {
+  tareas = tareas.filter((t) => t && String(t.tarea || '').trim()).slice(0, 4);
+  if (!tareas.length) throw new Error('No hay tareas.');
+  const boss = from && from.alive ? recOf(from).name || 'Clawd' : 'Clawd';
+  log(`delegar: ${boss} reparte ${tareas.length} tarea(s)`);
+  return Promise.all(tareas.map((t, i) => new Promise((resolve) => setTimeout(() => runHelper(from, boss, t, resolve), i * 700))));
+}
+function runHelper(from, boss, t, resolve) {
+  const fam = HELPER_MODELS[String(t.modelo || '').toLowerCase()] ? String(t.modelo).toLowerCase() : 'sonnet';
+  const p = new Pet(null);
+  p.extra = 'h' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+  p.helper = true;
+  const rec = recOf(p);
+  ensureIdentity(p);                               // nombre de Clawd (Chispa, Migas…), como los demás
+  // usa las extensiones que pidió (o las de quien lo invocó), si existen
+  const all = readExtensions();
+  const ext = (Array.isArray(t.extensiones) && t.extensiones.length ? t.extensiones : (from ? recOf(from).ext || [] : []))
+    .map((n) => String(n).toLowerCase()).filter((n) => all[n]);
+  rec.ext = ext;
+  rec.chat = { lite: true, model: HELPER_MODELS[fam], pinned: true, history: [] };
+  p.chat = null;
+  createPetWindow(p, !OPTS.noIntro);
+  log(`delegar: ${rec.name} (${fam}) llega para: ${String(t.tarea).slice(0, 80)}`);
+  let finished = false;
+  const finish = (r) => {
+    if (finished) return;
+    finished = true;
+    resolve({ nombre: rec.name, modelo: fam, texto: r.text, error: !!r.error });
+    // entregó: se queda unos segundos (para que lo leas) y se despide
+    setTimeout(() => { byePet(p, 'terminó su parte'); setTimeout(() => { delete cfg.clawds['x:' + p.extra]; saveCfg(); }, 4000); }, 7000);
+  };
+  const timer = setTimeout(() => { stopChat(p); finish({ text: 'Se tardó demasiado y lo detuve.', error: true }); }, 12 * 60 * 1000);
+  setTimeout(() => {
+    if (!p.alive) { clearTimeout(timer); finish({ text: 'No pudo aparecer.', error: true }); return; }
+    p.send('chat:external', { text: t.tarea, from: boss });
+    chatSend(p, String(t.tarea), { from: boss, helper: true, onDone: (r) => { clearTimeout(timer); finish(r); } });
+  }, OPTS.noIntro ? 300 : 1800);
+}
+
+function chatSend(p, text, opts) {
+  opts = opts || {};
   const c = chatOf(p);
   stopChat(p);
   text = String(text || '').trim();
   if (!text) return false;
-  c.history.push({ who: 'Yo', text, ts: Date.now() });
+  c.history.push(Object.assign({ who: 'Yo', text, ts: Date.now() }, opts.from ? { from: opts.from } : {}));
   saveChat(p);
   try { fs.mkdirSync(CHAT_DIR, { recursive: true }); } catch (_) { /* nada */ }
   const linked = !!p.sid;
@@ -1540,9 +1652,19 @@ function chatSend(p, text) {
   if (!fs.existsSync(c.cwd)) { c.cwd = CHAT_DIR; c.cur = null; c.base = null; }
   // Ligera: no carga la sesión completa (puede ser enorme), solo lo más reciente de ella,
   // y se actualiza en cada mensaje (así sabe lo último que pasó allá).
+  // extensiones de este Clawd (+ "delegar" si no es ayudante): todas sus herramientas quedan permitidas
+  let mcp = null;
+  try { mcp = mcpConfigFor(p, !!opts.helper); } catch (e) { log('extensiones: ' + e); }
+  const allowed = [TOOLS, ...(mcp ? mcp.names.map((n) => `mcp__${n}`) : [])].join(',');
+  const extNames = petExtensions(p);
+  let sys = SYSTEM + (linked ? sessionContext(p) : '');
+  if (extNames.length) sys += `\n\nTienes estas extensiones y puedes usarlas libremente: ${extNames.map(extLabel).join(', ')}.`;
+  if (opts.helper) sys += `\n\nEres ${recOf(p).name}, un Clawd ayudante que invocó ${opts.from || 'otro Clawd'} para UNA tarea. Hazla completa y entrega el resultado directo, sin hacer preguntas (nadie te va a contestar).`;
+  else if (mcp && mcp.names.includes('companion')) sys += '\n\nSi te piden varias cosas que se pueden hacer por separado (o algo grande que conviene dividir), puedes usar la herramienta "delegar" para repartirlas entre Clawds ayudantes con el modelo adecuado. Úsala solo cuando valga la pena; para preguntas sencillas contesta tú.';
   const args = ['-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages',
-    '--model', c.model, '--tools', TOOLS, '--allowedTools', TOOLS, '--permission-mode', 'default',
-    '--append-system-prompt', SYSTEM + (linked ? sessionContext(p) : '')];
+    '--model', c.model, '--tools', TOOLS, '--allowedTools', allowed, '--permission-mode', 'default',
+    '--append-system-prompt', sys];
+  if (mcp) args.push('--mcp-config', mcp.file, '--strict-mcp-config');
   if (c.cur) args.push('--resume', c.cur);
   else if (c.base) args.push('--resume', c.base, '--fork-session');
   // nombre de la plática (lo guarda Claude Code mismo): provisional con tu primer mensaje, luego el de Haiku
@@ -1551,11 +1673,13 @@ function chatSend(p, text) {
   c.savedTitle = c.title;
   let proc;
   try {
-    proc = spawn(CLAUDE, args, { cwd: c.cwd, env: { ...process.env, COMPANION_CHAT: '1', MASCOTA_CHAT: '1' }, windowsHide: true });
+    // (MCP_TOOL_TIMEOUT: "delegar" espera a que terminen los ayudantes)
+    proc = spawn(CLAUDE, args, { cwd: c.cwd, env: { ...process.env, COMPANION_CHAT: '1', MASCOTA_CHAT: '1', MCP_TOOL_TIMEOUT: '900000' }, windowsHide: true });
   } catch (e) {
     c.history.push({ who: 'Claude', text: 'No encontré Claude Code en tu compu.', err: true, ts: Date.now() });
     saveChat(p);
     p.send('chat:done', { text: 'No encontré Claude Code en tu compu.', error: true });
+    if (opts.onDone) opts.onDone({ text: 'No encontré Claude Code.', error: true });
     return false;
   }
   c.proc = proc;
@@ -1578,8 +1702,9 @@ function chatSend(p, text) {
       log(`chat #${p.id}: ${m.is_error ? 'error' : 'ok'} ${c.model} (${String(m.result || '').length} letras, ${Math.round((Date.now() - t0) / 1000)} s)`);
       c.history.push({ who: 'Claude', text: String(m.result || (m.is_error ? 'Algo falló. Intenta otra vez.' : '…')), err: !!m.is_error, ts: Date.now() });
       saveChat(p);
-      if (!m.is_error && !c.aiTitled) { c.aiTitled = true; makeTitle(p); }   // título bonito tras la primera respuesta
+      if (!m.is_error && !c.aiTitled && !opts.helper) { c.aiTitled = true; makeTitle(p); }   // título bonito tras la primera respuesta
       p.send('chat:done', { text: String(m.result || ''), error: !!m.is_error });
+      if (opts.onDone) opts.onDone({ text: String(m.result || ''), error: !!m.is_error });
     }
   };
   proc.stdout.on('data', (d) => {
@@ -1601,6 +1726,7 @@ function chatSend(p, text) {
       c.history.push({ who: 'Claude', text: msg, err: true, ts: Date.now() });
       saveChat(p);
       p.send('chat:done', { text: msg, error: true });
+      if (opts.onDone) opts.onDone({ text: msg, error: true });
     }
   });
   proc.stdin.end(text, 'utf8');
@@ -2022,6 +2148,7 @@ ipcMain.on('menu', (e, id) => {
     { label: 'Nueva conversación con este Clawd', click: () => chatNew(p) },
     { label: 'Abrir su plática contigo en Claude', enabled: !!(chatOf(p).cur || chatOf(p).base), click: () => openInApp(p) },
     { label: 'Modelo con el que te contesta', submenu: modelMenuItems(p) },
+    { label: 'Extensiones', submenu: extensionMenuItems(p) },
   );
   if (p.extra) items.push({ label: 'Despedir a este Clawd', click: () => dismissExtra(p) });
   if (p.sid && many) {
@@ -2050,6 +2177,27 @@ ipcMain.on('menu', (e, id) => {
   );
   Menu.buildFromTemplate(items).popup({ window: p.win });
 });
+// ---------- extensiones de un Clawd (clic derecho) ----------
+function extensionMenuItems(p) {
+  const all = Object.keys(readExtensions());
+  if (!all.length) return [{ label: 'No tienes extensiones (se agregan en Claude Desktop o Claude Code)', enabled: false }];
+  const rec = recOf(p);
+  const on = new Set(rec.ext || []);
+  return [
+    ...all.map((n) => ({
+      label: extLabel(n), type: 'checkbox', checked: on.has(n),
+      click: () => {
+        if (on.has(n)) on.delete(n); else on.add(n);
+        rec.ext = [...on];
+        saveCfg(); groupDirty = true; sendIdentity(p, true);
+        log(`Clawd #${p.id} extensiones: ${rec.ext.join(', ') || 'ninguna'}`);
+      },
+    })),
+    { type: 'separator' },
+    { label: 'Puede leer y cambiar cosas en las que prendas', enabled: false },
+  ];
+}
+
 // ---------- invocar un Clawd nuevo (botón Clawd+) ----------
 // Llega caminando con su propio nombre, color y una plática nueva; no tiene sesión de Claude Code.
 function summonClawd() {
@@ -2185,6 +2333,9 @@ app.whenReady().then(async () => {
   ensureIntegration();
   createTray();
   startWatcher();
+  startApi();                                   // para que los Clawds puedan delegar
+  // los ayudantes no se guardan: si quedó alguno de una vez anterior, se olvida
+  for (const k of Object.keys(cfg.clawds)) if (/^x:h/.test(k)) delete cfg.clawds[k];
   await firstRun();
   initUpdates();
   // si lo abriste a mano aparece de inmediato; al iniciar Windows espera a que abras Claude

@@ -1325,6 +1325,11 @@ function renderGroup(force) {
     const p = petInfo(i.id) || { name: i.name || 'Clawd' };
     const pop = known.has(i.k) ? '' : ' pop';
     if (i.who === 'sep') return `<div class="gsep" data-k="${i.k}">Nueva plática con ${esc0(p.name)}</div>`;
+    if (i.who === 'you' && i.from) {
+      // se lo encargó otro Clawd (delegar): se ve como mensaje de ese Clawd al ayudante
+      return `<div class="gmsg claude${pop}" data-k="${i.k}"><span class="av" style="--tint:none"></span><div class="gcol">` +
+        `<span class="gname">${esc0(i.from)} <i>→ le encarga a ${esc0(p.name)}</i></span><div class="gb">${esc0(i.text)}</div></div></div>`;
+    }
     if (i.who === 'you') {
       return `<div class="gmsg you${pop}" data-k="${i.k}"><div class="gcol"><span class="gto">a ${esc0(p.name)}</span>` +
         `<div class="gb">${esc0(i.text)}</div></div></div>`;
