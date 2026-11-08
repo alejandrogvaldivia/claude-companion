@@ -72,8 +72,9 @@ const SYSTEM = [
   'Estás hablando a través de una mascota de escritorio: un mini Claude que flota en la pantalla del usuario.',
   'Tus respuestas aparecen en globitos de cómic pequeños que se desvanecen solos, así que responde en español,',
   'breve y directo (de 1 a 4 frases), sin tablas, sin encabezados y con muy poco markdown. Si te piden algo largo, da lo esencial.',
-  'Puedes leer archivos y buscar en la web, pero no puedes editar archivos ni ejecutar comandos;',
-  'si te piden eso, sugiere hacerlo en Claude Code.',
+  'Puedes leer archivos y buscar en la web. También puedes CREAR archivos nuevos (texto, Markdown, HTML, PDF o imagen PNG)',
+  'con la herramienta crear_archivo: se guardan en Documentos\\Claude Companion. No puedes cambiar archivos que ya existen',
+  'ni ejecutar comandos; si te piden eso, sugiere hacerlo en Claude Code.',
 ].join(' ');
 
 // --- medidas (en px de diseño; se multiplican por el tamaño de ventana elegido) ---
@@ -1126,6 +1127,7 @@ function sendGroup() {
       k: `h${p.id}-${h.ts || 0}-${i}`, id: p.id, who: h.who === 'Yo' ? 'you' : h.who === 'sep' ? 'sep' : 'claude',
       text: h.text || '', err: !!h.err, ts: h.ts || 0, last: i === lastClaude && !c.proc && !!c.cur && !p.helper,
       from: h.from || null,                       // si se lo pidió otro Clawd (delegar)
+      files: h.files || [],                       // archivos que creó en esa respuesta
     }));
     if (p.sid) {
       const info = lastList.find((x) => x.sid === p.sid);
@@ -1459,7 +1461,7 @@ function onFinished(p) {
 // - Si abres la plática en Claude ("Abrir en Claude"), la app se queda con esa sesión; si le
 //   vuelves a escribir al Clawd, sigue en una rama nueva de ella (con todo y lo que llevaban).
 const SYSTEM_BRANCH = 'Esta plática es aparte de una sesión de Claude Code del usuario (la sesión original sigue en la app de Claude y no se toca).' +
-  ' Abajo tienes lo más reciente de esa sesión para que sepas de qué va; si necesitas más, puedes leer sus archivos. Aquí solo platicas, lees y buscas.';
+  ' Abajo tienes lo más reciente de esa sesión para que sepas de qué va; si necesitas más, puedes leer sus archivos. Aquí platicas, lees, buscas y puedes crear archivos nuevos (no cambiar los de la sesión).';
 const HISTORY_MAX = 60;
 function defaultChatModel(p) {
   if (p.sid) {
@@ -1500,6 +1502,7 @@ function describeTool(name, input) {
   if (name === 'WebFetch') return 'Leyendo una página…';
   if (name === 'Read') return 'Leyendo ' + (input.file_path ? path.basename(String(input.file_path)) : 'un archivo') + '…';
   if (name === 'Grep' || name === 'Glob') return 'Buscando en tus archivos…';
+  if (name === 'mcp__companion__crear_archivo') return 'Creando ' + (input.nombre ? `"${String(input.nombre).slice(0, 40)}"` : 'un archivo') + (input.formato ? ' (' + String(input.formato).toUpperCase() + ')' : '') + '…';
   if (/^mcp__companion__/.test(name)) return 'Repartiendo el trabajo entre Clawds…';
   const m = /^mcp__([^_]+(?:_[^_]+)*?)__(.+)$/.exec(name || '');
   if (m) return `Usando ${extLabel(m[1])}…`;
@@ -1555,15 +1558,16 @@ function petExtensions(p) {
   const all = readExtensions();
   return (recOf(p).ext || []).filter((n) => all[n]);
 }
-// arma la configuración MCP de una plática: sus extensiones + "delegar" (los ayudantes no delegan)
+// arma la configuración MCP de una plática: sus extensiones + la propia ("crear_archivo" para todos,
+// "delegar" solo si no es ayudante: los ayudantes no delegan)
 function mcpConfigFor(p, helper) {
   const all = readExtensions();
   const servers = {};
   for (const n of petExtensions(p)) servers[n] = all[n];
-  if (!helper && api.port) {
+  if (api.port) {
     servers.companion = {
       type: 'stdio', command: process.execPath, args: [COMPANION_MCP],
-      env: { ELECTRON_RUN_AS_NODE: '1', COMPANION_PORT: String(api.port), COMPANION_TOKEN: api.token, COMPANION_PET: String(p.id) },
+      env: { ELECTRON_RUN_AS_NODE: '1', COMPANION_PORT: String(api.port), COMPANION_TOKEN: api.token, COMPANION_PET: String(p.id), COMPANION_CAN_DELEGATE: helper ? '0' : '1' },
     };
   }
   if (!Object.keys(servers).length) return null;
@@ -1581,13 +1585,18 @@ const api = { port: 0, token: crypto.randomBytes(16).toString('hex') };
 function startApi() {
   const srv = http.createServer((req, res) => {
     const done = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(obj)); };
-    if (req.method !== 'POST' || req.url !== '/delegar') return done(404, { error: 'no' });
+    if (req.method !== 'POST' || (req.url !== '/delegar' && req.url !== '/crear')) return done(404, { error: 'no' });
     let body = '';
     req.on('data', (c) => { body += c; if (body.length > 1e6) req.destroy(); });
     req.on('end', async () => {
       let j; try { j = JSON.parse(body); } catch (_) { return done(400, { error: 'json' }); }
       if (j.token !== api.token) return done(403, { error: 'contraseña' });
       const from = pets.get(Number(j.from));
+      if (req.url === '/crear') {
+        try { done(200, await createFile(from, j.archivo || {})); }
+        catch (e) { log('crear: ' + (e.message || e)); done(400, { error: String(e.message || e) }); }
+        return;
+      }
       try { done(200, { resultados: await delegate(from, Array.isArray(j.tareas) ? j.tareas : []) }); }
       catch (e) { done(500, { error: String(e.message || e) }); }
     });
@@ -1595,6 +1604,98 @@ function startApi() {
   srv.listen(0, '127.0.0.1', () => { api.port = srv.address().port; log(`delegar: escuchando en 127.0.0.1:${api.port}`); });
   srv.on('error', (e) => log('delegar: ' + e));
 }
+
+// ---------- crear archivos: solo nuevos y solo en Documentos\Claude Companion ----------
+const OUT_DIR = () => process.env.COMPANION_OUT || path.join(app.getPath('documents'), 'Claude Companion');
+const FORMATS = ['txt', 'md', 'html', 'pdf', 'png'];
+function safeName(n) {
+  n = String(n || '').replace(/\.(txt|md|html?|pdf|png)$/i, '').replace(/[<>:"/\\|?*\x00-\x1f]/g, ' ').replace(/\s+/g, ' ').trim().replace(/[. ]+$/, '').slice(0, 80);
+  if (/^(con|prn|aux|nul|com\d|lpt\d)$/i.test(n)) n = '_' + n;
+  return n || 'Archivo';
+}
+function freePath(dir, base, ext) {
+  let f = path.join(dir, `${base}.${ext}`);
+  for (let i = 2; fs.existsSync(f); i++) f = path.join(dir, `${base} (${i}).${ext}`);
+  return f;
+}
+// convierte una página HTML en PDF o PNG en una ventana oculta, sin JavaScript y sin poder navegar
+async function renderHtml(html, fmt, file) {
+  const tmpDir = path.join(BASE, 'render');
+  fs.mkdirSync(tmpDir, { recursive: true });
+  const tmp = path.join(tmpDir, `r-${Date.now()}-${Math.random().toString(36).slice(2, 6)}.html`);
+  if (!/<meta[^>]+charset/i.test(html)) html = '<meta charset="utf-8">' + html;
+  fs.writeFileSync(tmp, html, 'utf8');
+  // PNG: ventana "offscreen" (Windows no pinta las ventanas ocultas normales y la foto nunca llegaba)
+  const w = new BrowserWindow({
+    show: false, width: fmt === 'png' ? 1080 : 900, height: fmt === 'png' ? 400 : 1200, useContentSize: true,
+    webPreferences: { offscreen: fmt === 'png', javascript: false, sandbox: true, contextIsolation: true, nodeIntegration: false, partition: 'companion-render' },
+  });
+  w.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  w.webContents.on('will-navigate', (e) => e.preventDefault());
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const work = (async () => {
+    await w.loadFile(tmp);
+    await w.webContents.insertCSS('::-webkit-scrollbar{display:none!important}');
+    await wait(400);                                // fuentes e imágenes
+    if (fmt === 'pdf') {
+      fs.writeFileSync(file, await w.webContents.printToPDF({ printBackground: true, pageSize: 'A4', margins: { marginType: 'default' } }));
+      return;
+    }
+    // mide lo que ocupa de verdad el contenido (sin espacio sobrante a la derecha ni abajo)
+    const dbg = w.webContents.debugger;
+    dbg.attach('1.3');
+    let size;
+    try {
+      const r = await dbg.sendCommand('Runtime.evaluate', { returnByValue: true, expression: `(() => {
+        let w = 0, h = 0;
+        for (const el of document.body.querySelectorAll('*')) { const b = el.getBoundingClientRect(); if (b.width && b.height) { w = Math.max(w, b.right); h = Math.max(h, b.bottom); } }
+        const cs = getComputedStyle(document.body);
+        return { w: w + parseFloat(cs.marginRight || 0) + parseFloat(cs.paddingRight || 0), h: h + parseFloat(cs.marginBottom || 0) + parseFloat(cs.paddingBottom || 0) };
+      })()` });
+      size = r && r.result && r.result.value;
+    } finally { try { dbg.detach(); } catch (_) { /* nada */ } }
+    const width = Math.min(4000, Math.max(200, Math.ceil((size && size.w) || 1080)));
+    const height = Math.min(16000, Math.max(200, Math.ceil((size && size.h) || 1200) + 24));
+    w.setContentSize(width, height);
+    await wait(600);
+    w.webContents.invalidate();
+    await wait(300);
+    fs.writeFileSync(file, (await w.webContents.capturePage()).toPNG());
+  })();
+  try {
+    await Promise.race([work, wait(60000).then(() => { throw new Error('Tardó demasiado en armar el archivo.'); })]);
+  } finally {
+    w.destroy();
+    fs.unlink(tmp, () => {});
+  }
+}
+async function createFile(p, a) {
+  const fmt = String(a.formato || '').toLowerCase().replace(/^\./, '').replace(/^htm$/, 'html');
+  if (!FORMATS.includes(fmt)) throw new Error('Formato no soportado. Usa: ' + FORMATS.join(', ') + '.');
+  const content = String(a.contenido || '');
+  if (!content.trim()) throw new Error('El contenido está vacío.');
+  if (content.length > 3e6) throw new Error('El contenido es demasiado grande.');
+  const dir = OUT_DIR();
+  fs.mkdirSync(dir, { recursive: true });
+  const file = freePath(dir, safeName(a.nombre), fmt);
+  if (fmt === 'txt') fs.writeFileSync(file, '﻿' + content.replace(/\r?\n/g, '\r\n'), 'utf8');   // con BOM: el bloc de notas lo abre bien
+  else if (fmt === 'md' || fmt === 'html') fs.writeFileSync(file, content, 'utf8');
+  else await renderHtml(content, fmt, file);
+  const who = p && p.alive ? recOf(p).name || 'Clawd' : 'Clawd';
+  log(`crear: ${who} guardó ${file}`);
+  // lo anota en su plática (y en la de quien lo invocó, si es ayudante) para mostrarlo en el globo
+  for (const q of [p, p && p.helperOf]) if (q && q.alive && q.chat && q.chat.proc) (q.madeFiles = q.madeFiles || []).push(file);
+  let abierto = false;
+  if (a.abrir) { const err = await shell.openPath(file); abierto = !err; if (err) log('crear: no se pudo abrir: ' + err); }
+  return { ruta: file, abierto };
+}
+// abrir un archivo que creó un Clawd (solo los de su carpeta)
+ipcMain.on('file:open', (_e, f) => {
+  const dir = path.resolve(OUT_DIR()) + path.sep;
+  const full = path.resolve(String(f || ''));
+  if (full.toLowerCase().startsWith(dir.toLowerCase()) && fs.existsSync(full)) shell.openPath(full);
+  else if (fs.existsSync(dir)) shell.openPath(dir);
+});
 
 // ---------- ayudantes: llegan, hacen su parte, la entregan y se van ----------
 const HELPER_MODELS = { haiku: 'claude-haiku-5-5', sonnet: 'claude-sonnet-5-5', opus: 'claude-opus-5-5' };
@@ -1610,6 +1711,7 @@ function runHelper(from, boss, t, resolve) {
   const p = new Pet(null);
   p.extra = 'h' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
   p.helper = true;
+  p.helperOf = from || null;
   const rec = recOf(p);
   ensureIdentity(p);                               // nombre de Clawd (Chispa, Migas…), como los demás
   // usa las extensiones que pidió (o las de quien lo invocó), si existen
@@ -1625,7 +1727,7 @@ function runHelper(from, boss, t, resolve) {
   const finish = (r) => {
     if (finished) return;
     finished = true;
-    resolve({ nombre: rec.name, modelo: fam, texto: r.text, error: !!r.error });
+    resolve({ nombre: rec.name, modelo: fam, texto: r.text, error: !!r.error, archivos: r.files || [] });
     // entregó: se queda unos segundos (para que lo leas) y se despide
     setTimeout(() => { byePet(p, 'terminó su parte'); setTimeout(() => { delete cfg.clawds['x:' + p.extra]; saveCfg(); }, 4000); }, 7000);
   };
@@ -1659,6 +1761,7 @@ function chatSend(p, text, opts) {
   const extNames = petExtensions(p);
   let sys = SYSTEM + (linked ? sessionContext(p) : '');
   if (extNames.length) sys += `\n\nTienes estas extensiones y puedes usarlas libremente: ${extNames.map(extLabel).join(', ')}.`;
+  if (mcp && mcp.names.includes('companion')) sys += '\n\nSi te piden un documento, una nota, un PDF, una infografía u otro archivo, créalo de verdad con la herramienta "crear_archivo" (para PDF e imágenes, diseña una página HTML con buen CSS, sin JavaScript) y di dónde quedó.';
   if (opts.helper) sys += `\n\nEres ${recOf(p).name}, un Clawd ayudante que invocó ${opts.from || 'otro Clawd'} para UNA tarea. Hazla completa y entrega el resultado directo, sin hacer preguntas (nadie te va a contestar).`;
   else if (mcp && mcp.names.includes('companion')) sys += '\n\nSi te piden varias cosas que se pueden hacer por separado (o algo grande que conviene dividir), puedes usar la herramienta "delegar" para repartirlas entre Clawds ayudantes con el modelo adecuado. Úsala solo cuando valga la pena; para preguntas sencillas contesta tú.';
   const args = ['-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages',
@@ -1683,6 +1786,7 @@ function chatSend(p, text, opts) {
     return false;
   }
   c.proc = proc;
+  p.madeFiles = [];
   const t0 = Date.now();
   let buf = '', gotResult = false, errTxt = '';
   const handle = (line) => {
@@ -1700,11 +1804,12 @@ function chatSend(p, text, opts) {
     } else if (m.type === 'result') {
       gotResult = true;
       log(`chat #${p.id}: ${m.is_error ? 'error' : 'ok'} ${c.model} (${String(m.result || '').length} letras, ${Math.round((Date.now() - t0) / 1000)} s)`);
-      c.history.push({ who: 'Claude', text: String(m.result || (m.is_error ? 'Algo falló. Intenta otra vez.' : '…')), err: !!m.is_error, ts: Date.now() });
+      const files = (p.madeFiles || []).filter((f, i, a) => a.indexOf(f) === i);
+      c.history.push(Object.assign({ who: 'Claude', text: String(m.result || (m.is_error ? 'Algo falló. Intenta otra vez.' : '…')), err: !!m.is_error, ts: Date.now() }, files.length ? { files } : {}));
       saveChat(p);
       if (!m.is_error && !c.aiTitled && !opts.helper) { c.aiTitled = true; makeTitle(p); }   // título bonito tras la primera respuesta
-      p.send('chat:done', { text: String(m.result || ''), error: !!m.is_error });
-      if (opts.onDone) opts.onDone({ text: String(m.result || ''), error: !!m.is_error });
+      p.send('chat:done', { text: String(m.result || ''), error: !!m.is_error, files });
+      if (opts.onDone) opts.onDone({ text: String(m.result || ''), error: !!m.is_error, files });
     }
   };
   proc.stdout.on('data', (d) => {

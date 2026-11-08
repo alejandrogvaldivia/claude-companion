@@ -33,6 +33,7 @@ contextBridge.exposeInMainWorld('companion', {
   trace: (id, m) => ipcRenderer.send('trace', id, m),
   entranceWalk: (id) => ipcRenderer.send('entrance:walk', id),
   rename: (id, name) => ipcRenderer.send('pet:rename', id, name),
+  openFile: (file) => ipcRenderer.send('file:open', file),       // un archivo que creó un Clawd
   // animación oficial de Clawd con su laptop (la de la pantalla de "nuevo chat"); se lee una vez
   laptopAnim: () => {
     if (!laptop) laptop = fs.readFileSync(path.join(ASSETS, 'clawd-laptop.json'), 'utf8');

@@ -808,6 +808,8 @@ api.on('focus-chat', () => { showConvo(); el.input.focus(); });
 $('btnMic').addEventListener('click', () => { showConvo(); el.input.focus(); api.dictate(); });
 // botones dentro de los globos (se crean al vuelo)
 el.thread.addEventListener('click', (e) => {
+  const f = e.target.closest('[data-file]');
+  if (f) { api0.openFile(f.dataset.file); return; }
   const b = e.target.closest('button');
   if (!b) return;
   if (b.classList.contains('open-app')) api.openInApp();
@@ -936,7 +938,7 @@ function onDone(r) {
     const stick = nearBottom();
     cur.tool.textContent = '';
     if (r && r.error) cur.answer.innerHTML = `<span class="err">${esc(text || 'Algo falló. Intenta otra vez.')}</span>`;
-    else cur.answer.innerHTML = md(text || '…');
+    else cur.answer.innerHTML = md(text || '…') + fileChips(r && r.files);
     if (stick) toBottom();
   }
   if (!(r && r.error)) afterLaptop(() => playOnce('dancing'));
@@ -963,7 +965,7 @@ function restoreHistory(items) {
     else if (h.who === 'Yo') addYou(h.text);
     else {
       addClaude();
-      cur.answer.innerHTML = h.err ? `<span class="err">${esc(h.text)}</span>` : md(h.text || '…');
+      cur.answer.innerHTML = h.err ? `<span class="err">${esc(h.text)}</span>` : md(h.text || '…') + fileChips(h.files);
       cur.foot.classList.remove('hide');
     }
     el.thread.lastElementChild && el.thread.lastElementChild.classList.remove('pop');
@@ -1161,6 +1163,16 @@ const api0 = window.companion;
 document.documentElement.style.setProperty('--still-url', `url("${api0.assetUrl('Clawd-Still.png')}")`);
 const PAGE = { shared: false, mode: 'desktop', pets: new Map() };
 const esc0 = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+// archivos que creó un Clawd: botoncitos para abrirlos
+const FILE_ICON = { pdf: '\u{1F4D5}', txt: '\u{1F4DD}', md: '\u{1F4DD}', html: '\u{1F310}', png: '\u{1F5BC}\uFE0F' };
+function fileChips(files) {
+  if (!files || !files.length) return '';
+  return '<div class="files">' + files.map((f) => {
+    const name = String(f).split(/[\\/]/).pop();
+    const ext = (name.split('.').pop() || '').toLowerCase();
+    return `<button class="file-chip" data-file="${esc0(f)}" title="Abrir ${esc0(f)}">${FILE_ICON[ext] || '\u{1F4C4}'} ${esc0(name)}</button>`;
+  }).join('') + '</div>';
+}
 
 // lo que cada Clawd usa para hablar con el proceso principal (todo lleva su id)
 function petApi(ID) {
@@ -1339,7 +1351,7 @@ function renderGroup(force) {
     let bub;
     if (i.who === 'say') bub = `<div class="gb" data-say="${i.id}">${esc0(i.text)}</div>`;
     else if (i.who === 'live') bub = `<div class="gb">${i.tool && !i.text ? `<div class="tool">${esc0(i.tool)}</div>` : ''}${i.text ? mdG(i.text) + '<span class="caret"></span>' : '<span class="dots"><i></i><i></i><i></i></span>'}</div>`;
-    else bub = `<div class="gb">${i.err ? `<span class="err">${esc0(i.text)}</span>` : mdG(i.text)}${i.last ? `<div class="gfoot">${p.hasSession ? `<button class="to-session" data-tosession="${i.id}" title="Abre su sesión en Claude Desktop con tu mensaje y esta respuesta ya pegados (sin enviar)">Mandar a su sesión &#x21AA;</button>` : ''}<button class="open-app" data-open="${i.id}" title="Abrir esta plática, con todo su historial, en la app de Claude">Abrir en Claude &#x2197;</button></div>` : ''}</div>`;
+    else bub = `<div class="gb">${i.err ? `<span class="err">${esc0(i.text)}</span>` : mdG(i.text) + fileChips(i.files)}${i.last ? `<div class="gfoot">${p.hasSession ? `<button class="to-session" data-tosession="${i.id}" title="Abre su sesión en Claude Desktop con tu mensaje y esta respuesta ya pegados (sin enviar)">Mandar a su sesión &#x21AA;</button>` : ''}<button class="open-app" data-open="${i.id}" title="Abrir esta plática, con todo su historial, en la app de Claude">Abrir en Claude &#x2197;</button></div>` : ''}</div>`;
     return `<div class="gmsg ${i.who === 'say' ? 'gsay' : i.who}${pop}" data-k="${i.k}">${avHtml(p)}<div class="gcol">${head}${bub}</div></div>`;
   }).join('');
   if (stick || force) gEl.feed.scrollTop = gEl.feed.scrollHeight;
@@ -1353,6 +1365,8 @@ gEl.feed.addEventListener('mouseout', (e) => {
   if (b && !b.contains(e.relatedTarget)) { b.classList.remove('open'); b.scrollTop = 0; G.openSay = null; renderGroup(); }
 });
 gEl.feed.addEventListener('click', (e) => {
+  const fc = e.target.closest('[data-file]');
+  if (fc) { api0.openFile(fc.dataset.file); return; }
   const ts = e.target.closest('[data-tosession]');
   if (ts) { api0.toSession(Number(ts.dataset.tosession)); ts.textContent = 'Pegado en Claude: revisa y dale Enter ✓'; return; }
   const o = e.target.closest('[data-open]');
