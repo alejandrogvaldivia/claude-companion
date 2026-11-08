@@ -537,7 +537,7 @@ function createPetWindow(p, entrance) {
   }
   if (isShared()) {
     addToShared(p, pos);
-    log(`Clawd #${p.id} aparece${p.sid ? ` (sesión ${p.sid.slice(0, 8)}, ${recOf(p).name})` : ' (anfitrión)'} [compartida]`);
+    log(`Clawd #${p.id} aparece${p.sid ? ` (sesión ${p.sid.slice(0, 8)}, ${recOf(p).name})` : p.extra ? ` (invocado, ${recOf(p).name})` : ' (anfitrión)'} [compartida]`);
     refreshTray();
     return;
   }
@@ -1040,7 +1040,9 @@ function reconcile(list) {
 
 function statusFor(p, list) {
   if (OPTS.demo) return computeStatus(demoStatus(OPTS.demo), true);
-  if (!p.sid) return computeStatus(list, false);           // anfitrión sin sesión: resumen de todas
+  // sin sesión (invocado o el anfitrión): NO copia el estado de ninguna sesión. Solo trabaja cuando
+  // le escribes tú (eso lo maneja su página) y en reposo se duerme como los demás.
+  if (!p.sid) return { mode: 'sleep', key: '', hasInfo: false, showBubble: false, title: '', sub: '', dot: DOT.gray, extra: '' };
   const info = list.find((s) => s.sid === p.sid);
   if (!info) return { mode: 'sleep', key: '', hasInfo: false, showBubble: false, title: '', sub: '', dot: DOT.gray, extra: '' };
   return computeStatus([info], true);

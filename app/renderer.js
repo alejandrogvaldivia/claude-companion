@@ -930,6 +930,7 @@ function onDone(r) {
   if (!chatBusy && !talkVisible) return;
   setBusy(false);
   lastChatAt = Date.now();
+  inactiveSince = Date.now();                // platicar cuenta como actividad: se duerme 1 min después
   const text = String((r && r.text) || answerText || '').trim();
   if (cur) {
     const stick = nearBottom();
