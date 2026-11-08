@@ -54,6 +54,31 @@ npm start
 
 Para generar el instalador: `npm run dist`. Queda en `dist/`.
 
+## Actualizaciones
+
+Claude Companion **se actualiza solo**:
+- Al abrirse, y cada 6 horas, revisa si hay una versión nueva en [Releases](../../releases).
+- Si la hay, la baja en segundo plano y la instala cuando cierras la app. También puedes instalarla al momento desde el ícono de la bandeja: **"Actualizar a la versión…"**.
+- Tus Clawds, pláticas y hooks se conservan.
+- Para revisar a mano: ícono de la bandeja → **Buscar actualizaciones**.
+
+### Publicar una versión (para quien mantiene el proyecto)
+
+Requiere [GitHub CLI](https://cli.github.com/) con sesión iniciada (`gh auth login`).
+
+```bash
+npm run release              # arreglos:       1.2.3 → 1.2.4
+npm run release -- minor     # cosas nuevas:   1.2.3 → 1.3.0
+npm run release -- major     # cambio grande:  1.2.3 → 2.0.0
+npm run release -- minor "Qué cambió"   # con notas propias (si no, se arman con los commits)
+```
+
+El comando:
+1. Sube la versión en `package.json`.
+2. Genera el instalador.
+3. Hace commit y push.
+4. Crea el Release con lo que necesita el actualizador: el `.exe`, su `.blockmap` y `latest.yml`.
+
 ## Cómo funciona (y privacidad)
 
 - **Los hooks** (`hook/hook.js`) solo anotan el estado de cada sesión en `~/.claude/claude-companion/sesiones/`. No mandan nada a ningún lado.

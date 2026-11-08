@@ -164,6 +164,7 @@ const cfg = {
   model: modelInfo(cfg0.model).id,
   chatDir: cfg0.chatDir || null,
   hooksAsked: !!cfg0.hooksAsked,
+  hooksOn: !!cfg0.hooksOn,                       // los conectaste tú (si faltan, se vuelven a poner)
   petScale: num(cfg0.petScale, 1, 0.6, 1.6),     // tamaño general de los Clawds
   winScale: num(cfg0.winScale, 1, 0.7, 1.5),     // tamaño general de las ventanas
   maxPets: num(cfg0.maxPets, 6, 1, 10),
@@ -1908,6 +1909,59 @@ function showAll() {
   refreshTray();
 }
 
+// =====================================================================
+//  Actualizaciones automáticas (desde los Releases de GitHub)
+// =====================================================================
+// Al abrirse y cada 6 horas revisa si hay versión nueva; la baja en segundo plano y se instala
+// sola al cerrar la app (o al momento, desde el ícono de la bandeja).
+const update = { ready: null, checking: false, notified: false };
+let autoUpdater = null;
+function initUpdates() {
+  if (!app.isPackaged || process.env.COMPANION_CFG) return;          // en desarrollo y en pruebas, no
+  try { ({ autoUpdater } = require('electron-updater')); } catch (e) { log('actualizador: ' + e); return; }
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.logger = { info: () => {}, warn: (m) => log('actualizador: ' + m), error: (m) => log('actualizador: ' + m), debug: () => {} };
+  autoUpdater.on('update-available', (i) => log(`actualizador: hay versión ${i.version}, bajándola`));
+  autoUpdater.on('update-downloaded', (i) => {
+    update.ready = i.version;
+    log(`actualizador: versión ${i.version} lista`);
+    refreshTray();
+    if (tray && !update.notified) {
+      update.notified = true;
+      try {
+        tray.displayBalloon({
+          iconType: 'info', title: `Claude Companion ${i.version}`,
+          content: 'Hay una versión nueva lista. Se instala sola al cerrar, o ahora desde el ícono de la bandeja.',
+        });
+      } catch (_) { /* nada */ }
+    }
+  });
+  setTimeout(() => checkUpdates(false), 15000);
+  setInterval(() => checkUpdates(false), 6 * 3600 * 1000);
+}
+async function checkUpdates(manual) {
+  if (!autoUpdater || update.checking) return;
+  update.checking = true; refreshTray();
+  try {
+    const r = await autoUpdater.checkForUpdates();
+    const v = r && r.updateInfo && r.updateInfo.version;
+    if (manual && (!v || v === app.getVersion())) {
+      dialog.showMessageBox({ type: 'info', title: APP_NAME, message: `Ya tienes la versión más nueva (${app.getVersion()}).` }).catch(() => {});
+    }
+  } catch (e) {
+    log('actualizador: ' + String(e && e.message || e).split('\n')[0]);
+    if (manual) dialog.showMessageBox({ type: 'warning', title: APP_NAME, message: 'No pude revisar si hay actualizaciones.', detail: 'Revisa tu internet e intenta de nuevo.' }).catch(() => {});
+  }
+  update.checking = false; refreshTray();
+}
+function installUpdate() {
+  if (!autoUpdater || !update.ready) return;
+  quitting = true;
+  for (const p of livePets()) destroyPet(p);
+  autoUpdater.quitAndInstall(true, true);           // instalación silenciosa y se vuelve a abrir
+}
+
 let tray = null;
 // "Cerrar" los despide y los oculta; regresan solos la próxima vez que abras Claude.
 function trayMenu() {
@@ -1915,9 +1969,14 @@ function trayMenu() {
     ? { label: 'Cerrar', click: hideAll }
     : { label: 'Mostrar a Clawd', click: showAll };
   const hooked = setup.hooksInstalled();
+  const upd = update.ready
+    ? [{ label: `Actualizar a la versión ${update.ready} (reinicia)`, click: installUpdate }, { type: 'separator' }]
+    : [];
   return Menu.buildFromTemplate([
+    ...upd,
     ...modeItems(), { type: 'separator' }, ...sizeItems(), { type: 'separator' },
     { label: 'Conectado a Claude Code', type: 'checkbox', checked: hooked, click: () => (hooked ? disconnectHooks() : connectHooks(true)) },
+    { label: `Buscar actualizaciones (versión ${app.getVersion()})`, enabled: app.isPackaged && !update.checking, click: () => checkUpdates(true) },
     { type: 'separator' }, last,
     { label: 'Salir de Claude Companion', click: () => { quitting = true; for (const p of livePets()) destroyPet(p); app.quit(); } },
   ]);
@@ -2031,7 +2090,8 @@ async function firstRun() {
   assetsReady = !r.missing.length;
   // 2) hooks de Claude Code: se piden una sola vez; si ya están, se actualizan (por si cambió de lugar)
   try {
-    if (setup.hooksInstalled()) setup.installHooks(process.execPath, HOOK_SRC);
+    if (setup.hooksInstalled()) { setup.installHooks(process.execPath, HOOK_SRC); if (!cfg.hooksOn) { cfg.hooksOn = true; saveCfg(); } }
+    else if (cfg.hooksOn) { setup.installHooks(process.execPath, HOOK_SRC); log('hooks restaurados'); }
     else if (!cfg.hooksAsked) await connectHooks(false);
   } catch (e) { log('hooks: ' + e); }
   refreshTray();
@@ -2048,12 +2108,12 @@ async function connectHooks(fromMenu) {
     });
     if (response !== 0) { refreshTray(); return; }
   }
-  try { const cmd = setup.installHooks(process.execPath, HOOK_SRC); log('hooks instalados: ' + cmd); }
+  try { const cmd = setup.installHooks(process.execPath, HOOK_SRC); cfg.hooksOn = true; saveCfg(); log('hooks instalados: ' + cmd); }
   catch (e) { dialog.showErrorBox(APP_NAME, 'No pude conectar con Claude Code: ' + e.message); }
   refreshTray();
 }
 function disconnectHooks() {
-  try { setup.uninstallHooks(); log('hooks quitados'); } catch (e) { dialog.showErrorBox(APP_NAME, 'No pude quitar los hooks: ' + e.message); }
+  try { setup.uninstallHooks(); cfg.hooksOn = false; saveCfg(); log('hooks quitados'); } catch (e) { dialog.showErrorBox(APP_NAME, 'No pude quitar los hooks: ' + e.message); }
   refreshTray();
 }
 
@@ -2085,6 +2145,7 @@ app.whenReady().then(async () => {
   createTray();
   startWatcher();
   await firstRun();
+  initUpdates();
   // si lo abriste a mano aparece de inmediato; al iniciar Windows espera a que abras Claude
   if (!BACKGROUND) manualShow = true;
   managerTick();

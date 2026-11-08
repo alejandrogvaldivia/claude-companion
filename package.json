@@ -11,9 +11,11 @@
     "postinstall": "node scripts/build-watcher.js",
     "start": "electron .",
     "build:watcher": "node scripts/build-watcher.js",
-    "dist": "node scripts/build-watcher.js && electron-builder --win nsis"
+    "dist": "node scripts/build-watcher.js && electron-builder --win nsis --publish never",
+    "release": "node scripts/release.js"
   },
   "dependencies": {
+    "electron-updater": "6.3.9",
     "lottie-web": "5.12.2"
   },
   "devDependencies": {
@@ -53,7 +55,14 @@
       "shortcutName": "Claude Companion",
       "include": "build/installer.nsh",
       "artifactName": "Claude-Companion-Setup-${version}.exe"
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "alesito-gv",
+        "repo": "claude-companion"
+      }
+    ]
   },
   "repository": {
     "type": "git",
