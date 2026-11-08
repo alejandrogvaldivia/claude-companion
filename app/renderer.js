@@ -801,10 +801,10 @@ el.input.addEventListener('keydown', (e) => {
   }
 });
 el.send.addEventListener('click', () => { if (chatBusy) api.cancel(); else sendMsg(); });
-$('btnNew').addEventListener('click', () => {
-  api.newChat();
-  showConvo(); el.input.focus();
-});
+// Clawd con +: invoca un Clawd nuevo (llega caminando, con su propia plática)
+$('btnNew').addEventListener('click', () => api0.summon());
+// recién invocado: su barrita queda lista para escribirle
+api.on('focus-chat', () => { showConvo(); el.input.focus(); });
 $('btnMic').addEventListener('click', () => { showConvo(); el.input.focus(); api.dictate(); });
 // botones dentro de los globos (se crean al vuelo)
 el.thread.addEventListener('click', (e) => {
@@ -1230,7 +1230,7 @@ api0.on('page:place', (list) => {
   }
 });
 api0.on('page:z', (ids) => ids.forEach((id, i) => { const p = PAGE.pets.get(id); if (p) p.root.style.zIndex = String(i + 1); }));
-api0.on('page:group', (d) => { Object.assign(G, { pets: d.pets || G.pets, feed: d.feed || G.feed }); if (d.pos) placeGroup(d.pos); renderGroup(); });
+api0.on('page:group', (d) => { Object.assign(G, { pets: d.pets || G.pets, feed: d.feed || G.feed }); if (d.pos) placeGroup(d.pos); applyPending(); renderGroup(); });
 
 api0.init().then((o) => {
   PAGE.shared = !!o.shared;
@@ -1421,6 +1421,9 @@ gEl.send.addEventListener('click', () => {
   const id = currentTarget();
   if (id && G.live.has(id)) api0.cancel(id); else groupSend();
 });
-gEl.nu.addEventListener('click', () => { const id = currentTarget(); if (id) { api0.newChat(id); gEl.input.focus(); } });
+// Clawd con +: invoca un Clawd nuevo; cuando llega, "Responder a" queda en él
+gEl.nu.addEventListener('click', () => { api0.summon().then((id) => { G.pending = id; }); });
+api0.on('page:target', (d) => { G.pending = d.id; G.hover = true; groupShow(); applyPending(); gEl.input.focus(); setTimeout(() => { G.hover = false; }, 400); });
+function applyPending() { if (G.pending && G.pets.some((p) => p.id === G.pending)) { G.target = G.pending; G.pending = null; renderTo(); } }
 document.getElementById('gModel').addEventListener('click', () => { const id = currentTarget(); if (id) api0.modelMenu(id); });
 gEl.mic.addEventListener('click', () => { gEl.input.focus(); api0.dictate(currentTarget()); });

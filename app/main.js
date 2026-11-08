@@ -175,7 +175,8 @@ const cfg = {
   },
   social: Object.assign({ enabled: true, greet: 60, talk: 20, jump: 15, ride: 5, minGapMs: 45000, maxGapMs: 90000 }, cfg0.social || {}),
   home: cfg0.home || {},             // el Clawd sin sesión (cuando no hay ninguna)
-  clawds: cfg0.clawds || {},         // por sesión: nombre, color, lugar
+  clawds: cfg0.clawds || {},         // por sesión: nombre, color, lugar (los invocados: "x:<id>")
+  extras: Array.isArray(cfg0.extras) ? cfg0.extras : [],   // los Clawds que invocaste (siguen ahí al reiniciar)
   projects: cfg0.projects || {},     // por proyecto: el último nombre y color que elegiste
 };
 if (cfg.chatDir && fs.existsSync(cfg.chatDir)) CHAT_DIR = cfg.chatDir;
@@ -260,6 +261,7 @@ class Pet {
   constructor(sid) {
     this.id = ++petSeq;
     this.sid = sid || null;           // sesión de Claude Code que representa (null = anfitrión sin sesión)
+    this.extra = null;                // id si lo invocaste tú (botón Clawd+): sin sesión, se queda hasta que lo despidas
     this.win = null;
     this.side = 'right';
     this.entranceInfo = null;
@@ -297,6 +299,7 @@ const anyWin = () => { const p = leadPet() || [...pets.values()].find((q) => q.a
 // identidad: nombre y color por sesión (y lo que elegiste para su proyecto)
 function isScratch(cwd) { return !cwd || /scratch-workspaces|[\\/]Temp[\\/]/i.test(cwd); }
 function recOf(p) {
+  if (p.extra) { const k = 'x:' + p.extra; if (!cfg.clawds[k]) cfg.clawds[k] = {}; return cfg.clawds[k]; }
   if (!p.sid) return cfg.home;
   if (!cfg.clawds[p.sid]) cfg.clawds[p.sid] = {};
   return cfg.clawds[p.sid];
@@ -570,7 +573,7 @@ function createPetWindow(p, entrance) {
     if (p.win !== win) return;            // ya tiene otra ventana (cambio de modo)
     stopEntranceWalk(p); stopMove(p); endSocialOf(p); pets.delete(p.id); p.win = null; refreshTray();
   });
-  log(`Clawd #${p.id} aparece${p.sid ? ` (sesión ${p.sid.slice(0, 8)}, ${recOf(p).name})` : ' (anfitrión)'}`);
+  log(`Clawd #${p.id} aparece${p.sid ? ` (sesión ${p.sid.slice(0, 8)}, ${recOf(p).name})` : p.extra ? ` (invocado, ${recOf(p).name})` : ' (anfitrión)'}`);
   refreshTray();
 }
 function destroyPet(p) {
@@ -1012,7 +1015,7 @@ function reconcile(list) {
   for (const s of want) {
     if ([...pets.values()].some((p) => p.sid === s.sid && p.alive)) continue;   // nunca dos para la misma sesión (ni mientras se despide)
     // el anfitrión sin sesión adopta la primera que aparezca
-    const host = livePets().find((p) => !p.sid);
+    const host = livePets().find((p) => !p.sid && !p.extra);
     if (host) {
       if (host.chat) { saveChat(host); host.chat = null; }   // su plática sin sesión se queda guardada como la del anfitrión
       host.sid = s.sid; ensureIdentity(host, s); sendIdentity(host, true);
@@ -1021,6 +1024,11 @@ function reconcile(list) {
     const p = new Pet(s.sid);
     ensureIdentity(p, s);
     createPetWindow(p, !OPTS.noIntro);
+  }
+  // los que invocaste regresan (hasta que los despidas)
+  for (const x of cfg.extras) {
+    if ([...pets.values()].some((p) => p.extra === x && p.alive)) continue;
+    const p = new Pet(null); p.extra = x; ensureIdentity(p); createPetWindow(p, !OPTS.noIntro);
   }
   // un Clawd siempre, aunque no haya sesiones (para platicar con él)
   if (!livePets().length && ![...pets.values()].some((p) => p.alive)) {
@@ -2012,6 +2020,7 @@ ipcMain.on('menu', (e, id) => {
     { label: 'Abrir su plática contigo en Claude', enabled: !!(chatOf(p).cur || chatOf(p).base), click: () => openInApp(p) },
     { label: 'Modelo con el que te contesta', submenu: modelMenuItems(p) },
   );
+  if (p.extra) items.push({ label: 'Despedir a este Clawd', click: () => dismissExtra(p) });
   if (p.sid && many) {
     items.push({
       label: 'Ocultar este Clawd (vuelve cuando su sesión trabaje)',
@@ -2038,6 +2047,35 @@ ipcMain.on('menu', (e, id) => {
   );
   Menu.buildFromTemplate(items).popup({ window: p.win });
 });
+// ---------- invocar un Clawd nuevo (botón Clawd+) ----------
+// Llega caminando con su propio nombre, color y una plática nueva; no tiene sesión de Claude Code.
+function summonClawd() {
+  if (!petsAllowed()) showAll();
+  const x = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  cfg.extras.push(x);
+  saveCfg();
+  const p = new Pet(null);
+  p.extra = x;
+  ensureIdentity(p);
+  createPetWindow(p, !OPTS.noIntro);
+  log(`Clawd #${p.id} invocado (${recOf(p).name})`);
+  // cuando termine de llegar, su barrita queda lista para escribirle
+  setTimeout(() => {
+    if (!p.alive) return;
+    if (p.shared) sendShared('page:target', { id: p.id });
+    else { try { p.win.focus(); } catch (_) { /* nada */ } p.send('focus-chat'); }
+  }, OPTS.noIntro ? 600 : 3200);
+  return p.id;
+}
+function dismissExtra(p) {
+  cfg.extras = cfg.extras.filter((x) => x !== p.extra);
+  delete cfg.clawds['x:' + p.extra];
+  saveCfg();
+  stopChat(p);
+  byePet(p, 'lo despediste');
+}
+ipcMain.handle('pet:summon', () => summonClawd());
+
 // nombre nuevo escrito en su etiqueta
 ipcMain.on('pet:rename', (e, id, name) => {
   const p = petOf(e, id);
@@ -2168,6 +2206,7 @@ app.whenReady().then(async () => {
         else if (what.startsWith('pet=')) setPetScale(Number(what.slice(4)));
         else if (what === 'close') hideAll();
         else if (what === 'show') showAll();
+        else if (what === 'summon') summonClawd();
         else if (what.startsWith('chat=')) { const [, sid, text] = what.split('='); const p = livePets().find((q) => (q.sid || 'anfitrion').startsWith(sid)); if (p) chatSend(p, text); }
         else if (what === 'gshow') { if (sharedWin) sharedWin.webContents.executeJavaScript('groupShow()').catch(() => {}); }
         else if (what.startsWith('js64=')) { const w = sharedWin || anyWin(); const code = Buffer.from(what.slice(5), 'base64').toString('utf8'); if (w) w.webContents.executeJavaScript(code).then((r) => log('js: ' + JSON.stringify(r) + ' visible=' + w.isVisible() + ' bounds=' + JSON.stringify(w.getBounds()))).catch((e) => log('js error: ' + e)); }

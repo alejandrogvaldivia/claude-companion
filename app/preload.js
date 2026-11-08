@@ -12,6 +12,7 @@ let laptop = null;
 contextBridge.exposeInMainWorld('companion', {
   // ---- de la página ----
   init: () => ipcRenderer.invoke('page:init'),
+  summon: () => ipcRenderer.invoke('pet:summon'),
   setInteractive: (on) => ipcRenderer.send('interactive', on),
   on: (ch, fn) => ipcRenderer.on(ch, (_e, data) => fn(data)),
   assetUrl: (name) => pathToFileURL(path.join(ASSETS, name)).href,
