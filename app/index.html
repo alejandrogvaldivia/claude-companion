@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: blob: file:; style-src 'self' 'unsafe-inline'; script-src 'self'">
+  <title>Claude Companion</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Aquí viven uno o varios Clawds (cada uno es una copia de la plantilla de abajo) -->
+  <div id="stage"></div>
+
+  <!-- Chat grupal (cuando todos comparten una ventana): como un grupo de WhatsApp -->
+  <div id="group" class="hit">
+    <div id="gfeed"></div>
+    <div id="gask">
+      <button id="gNew" class="icon clawd-new" title="Nueva conversación con este Clawd"></button>
+      <div id="gTo">
+        <button id="gToBtn" title="Elegir a qué Clawd le escribes"><span class="av"></span><span id="gToName">Responder a</span> &#x25BE;</button>
+      </div>
+      <input id="gInput" type="text" placeholder="Escríbele…" autocomplete="off">
+      <button id="gModel" class="chip hide" title="Cambiar el modelo con el que te contesta">Sonnet</button>
+      <button id="gMic" class="icon" title="Dictar con la voz (Win + H)">&#xE720;</button>
+      <button id="gSend" class="send" title="Enviar (Enter)">&#xE74A;</button>
+    </div>
+    <div id="gList"></div>
+  </div>
+
+  <template id="tpl-clawd">
+    <div class="clawd">
+      <!-- la plática en globitos: se van acumulando y se puede scrollear -->
+      <div id="talk">
+        <div id="thread" class="hit"></div>
+      </div>
+
+      <!-- lo que Claude está haciendo: tareas (chiquito), lo que va diciendo (globos) y la acción principal -->
+      <div id="work">
+        <div id="plan" class="hit" title="Abrir su conversación en Claude"></div>
+        <div id="says"></div>
+        <div id="status" class="hit" title="Abrir su conversación en Claude">
+          <div class="row">
+            <span id="dot"></span><span id="spin"><i></i><i></i><i></i></span>
+            <span id="title"></span><span id="time"></span><span id="extra"></span>
+          </div>
+          <div id="sub"></div>
+        </div>
+      </div>
+
+      <div id="strip" class="hit" title="Pasa el cursor para platicar con Claude"></div>
+
+      <div id="pet" class="hit">
+        <!-- su cuerpo: crece o se encoge según el modelo de su sesión, y se tiñe con su color -->
+        <div id="body">
+          <div id="lottie"></div>
+          <img id="gif" alt="" draggable="false">
+          <img id="gif2" alt="" draggable="false">
+          <canvas id="nap" width="550" height="370"></canvas>
+          <canvas id="hang" width="550" height="370"></canvas>
+          <div id="fx"></div>
+          <div id="pethit" title="Clic: abrir su conversación en Claude · Arrastrar: moverlo"></div>
+        </div>
+        <!-- su nombre (aparece al pasar el cursor; también sirve para renombrarlo) -->
+        <div id="tag"><span id="tagName">Clawd</span><span id="tagModel"></span><input id="tagInput" class="hit" maxlength="24" spellcheck="false"></div>
+      </div>
+
+      <div id="ask" class="hit">
+        <button id="btnNew" class="icon clawd-new" title="Nueva conversación"></button>
+        <input id="input" type="text" placeholder="Escríbele…" autocomplete="off">
+        <button id="modelChip" class="chip" title="Cambiar el modelo">Sonnet</button>
+        <button id="btnMic" class="icon" title="Dictar con la voz (Win + H)">&#xE720;</button>
+        <button id="btnSend" class="send" title="Enviar (Enter)">&#xE74A;</button>
+      </div>
+    </div>
+  </template>
+
+  <script src="../node_modules/lottie-web/build/player/lottie_light.min.js"></script>
+  <script src="renderer.js"></script>
+</body>
+</html>

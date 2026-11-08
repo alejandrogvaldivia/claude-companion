@@ -1,0 +1,63 @@
+{
+  "name": "claude-companion",
+  "productName": "Claude Companion",
+  "version": "1.0.0",
+  "description": "Clawds en tu escritorio: uno por cada sesión de Claude Code, con su estado, su lista de tareas y una plática propia. Proyecto de fans, no oficial.",
+  "main": "app/main.js",
+  "author": "Claude Companion contributors",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "postinstall": "node scripts/build-watcher.js",
+    "start": "electron .",
+    "build:watcher": "node scripts/build-watcher.js",
+    "dist": "node scripts/build-watcher.js && electron-builder --win nsis"
+  },
+  "dependencies": {
+    "lottie-web": "5.12.2"
+  },
+  "devDependencies": {
+    "electron": "33.2.1",
+    "electron-builder": "25.1.8"
+  },
+  "build": {
+    "appId": "com.claudecompanion.app",
+    "productName": "Claude Companion",
+    "files": [
+      "app/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "bin/clawd.exe",
+        "to": "bin/clawd.exe"
+      },
+      {
+        "from": "hook/hook.js",
+        "to": "hook/hook.js"
+      }
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "app/assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": false,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Claude Companion",
+      "include": "build/installer.nsh",
+      "artifactName": "Claude-Companion-Setup-${version}.exe"
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/alesito-gv/claude-companion.git"
+  },
+  "homepage": "https://github.com/alesito-gv/claude-companion"
+}
