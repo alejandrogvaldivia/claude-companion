@@ -1767,7 +1767,7 @@ function chatSend(p, text, opts) {
   if (extNames.length) sys += `\n\nTienes estas extensiones y puedes usarlas libremente: ${extNames.map(extLabel).join(', ')}.`;
   if (mcp && mcp.names.includes('companion')) sys += '\n\nSi te piden un documento, una nota, un PDF, una infografía u otro archivo, créalo de verdad con la herramienta "crear_archivo" (para PDF e imágenes, diseña una página HTML con buen CSS, sin JavaScript) y di dónde quedó.';
   if (opts.helper) sys += `\n\nEres ${recOf(p).name}, un Clawd ayudante que invocó ${opts.from || 'otro Clawd'} para UNA tarea. Hazla completa y entrega el resultado directo, sin hacer preguntas (nadie te va a contestar).`;
-  else if (mcp && mcp.names.includes('companion')) sys += '\n\nSi te piden varias cosas que se pueden hacer por separado (o algo grande que conviene dividir), puedes usar la herramienta "delegar" para repartirlas entre Clawds ayudantes con el modelo adecuado. Úsala solo cuando valga la pena; para preguntas sencillas contesta tú.';
+  else if (mcp && mcp.names.includes('companion')) sys += '\n\nTienes la herramienta "delegar" para repartir trabajo entre Clawds ayudantes, pero úsala SOLO si el usuario te lo pide explícitamente en este mensaje (por ejemplo "delega", "reparte", "invoca ayudantes" o "que lo hagan otros Clawds"). Aunque te pidan varias cosas o algo grande, si no te piden delegar, hazlo tú mismo.';
   const args = ['-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages',
     '--model', c.model, '--tools', TOOLS, '--allowedTools', allowed, '--permission-mode', 'default',
     '--append-system-prompt', sys];

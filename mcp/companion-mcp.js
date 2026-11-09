@@ -35,7 +35,7 @@ const TOOL = {
   name: 'delegar',
   description:
     'Reparte tareas entre Clawds ayudantes (otros mini Claudes que aparecen en la pantalla del usuario y trabajan en paralelo). ' +
-    'Úsala cuando te pidan varias cosas que se pueden hacer por separado, o una tarea grande que conviene dividir. ' +
+    'Úsala SOLO cuando el usuario pida explícitamente delegar o repartir el trabajo (por ejemplo "delega", "reparte", "invoca ayudantes"); si no lo pide, haz tú la tarea aunque sean varias cosas. ' +
     'Elige el modelo de cada tarea: "haiku" para lo sencillo y rápido (buscar un dato, resumir algo corto), ' +
     '"sonnet" para lo normal (investigar, comparar, redactar), "opus" para lo difícil (razonar a fondo, planear algo complejo). ' +
     'Cada ayudante puede leer archivos, buscar en la web, crear archivos nuevos (crear_archivo) y usar las extensiones que le pases; no puede volver a delegar. ' +
