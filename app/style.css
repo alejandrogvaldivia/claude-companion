@@ -87,7 +87,7 @@ html, body {
 
 /* ---------- lo que Claude está haciendo: tareas, globos y la acción principal ---------- */
 #work {
-  position: absolute; right: 16px; bottom: 150px; width: 330px;
+  position: absolute; right: 16px; bottom: 150px; width: 420px;
   display: flex; flex-direction: column; align-items: flex-end; gap: 8px;
   opacity: 0; transform: translateY(6px); pointer-events: none;
   transition: opacity .4s ease, transform .4s ease;      /* se va junto con la barrita */
@@ -96,7 +96,7 @@ html, body {
 
 /* la acción principal (como "Listando sesiones 51s" en la app) */
 #status {
-  max-width: 310px; box-sizing: border-box; padding: 8px 14px 9px 12px;
+  max-width: 400px; box-sizing: border-box; padding: 8px 14px 9px 12px;
   background: rgba(31, 30, 29, .94); color: #fff;
   border: 1px solid rgba(255, 255, 255, .15); border-radius: 14px;
   box-shadow: 0 3px 14px rgba(0, 0, 0, .35);
@@ -123,7 +123,7 @@ html, body {
 
 /* la lista de tareas, más chiquita, encima de todo */
 #plan {
-  max-width: 290px; box-sizing: border-box; padding: 6px 12px 7px 10px;
+  max-width: 380px; box-sizing: border-box; padding: 6px 12px 7px 10px;
   background: rgba(31, 30, 29, .88); color: rgba(255, 255, 255, .9);
   border: 1px solid rgba(255, 255, 255, .12); border-radius: 12px;
   box-shadow: 0 2px 10px rgba(0, 0, 0, .3);
@@ -147,10 +147,10 @@ html, body {
 @keyframes turn { to { transform: rotate(360deg); } }
 
 /* lo que Claude va diciendo: globos de una línea que se abren al pasar el cursor */
-#says { display: flex; flex-direction: column; align-items: flex-end; gap: 7px; max-width: 320px; }
+#says { display: flex; flex-direction: column; align-items: flex-end; gap: 7px; max-width: 410px; }
 #says:empty { display: none; }
 .say {
-  position: relative; box-sizing: border-box; max-width: 300px; margin-right: 6px;
+  position: relative; box-sizing: border-box; max-width: 390px; margin-right: 6px;
   padding: 6px 12px 7px;
   background: var(--paper); color: var(--ink);
   border: 2px solid var(--ink); border-radius: 15px;
@@ -161,7 +161,7 @@ html, body {
 }
 .say.old { opacity: .78; font-size: 12px; padding: 5px 11px 6px; }
 .say.open {
-  white-space: normal; overflow-y: auto; max-height: 210px; max-width: 310px;
+  white-space: normal; overflow-y: auto; max-height: 230px; max-width: 400px;
   scrollbar-width: thin;
 }
 .say::-webkit-scrollbar { width: 5px; }
@@ -176,7 +176,7 @@ html, body {
 
 /* ---------- conversación en globitos de cómic ---------- */
 #talk {
-  position: absolute; right: 8px; bottom: 142px; width: 346px;
+  position: absolute; right: 8px; bottom: 142px; width: 436px;
   display: none;
   transition: opacity .4s ease, transform .4s ease;
 }
@@ -192,7 +192,7 @@ html, body {
 #thread::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .35); border-radius: 3px; }
 #thread::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, .6); }
 .bubble-you {
-  max-width: 250px; margin-right: 6px; flex: none;
+  max-width: 330px; margin-right: 6px; flex: none;
   padding: 6px 12px 7px; box-sizing: border-box;
   background: var(--orange); color: #fff;
   border: 2.5px solid var(--ink); border-radius: 16px 16px 4px 16px;
@@ -200,7 +200,7 @@ html, body {
   font-size: 13px; line-height: 1.35; word-wrap: break-word;
 }
 .bubble-claude {
-  position: relative; max-width: 310px; min-width: 120px; margin-right: 10px; flex: none;
+  position: relative; max-width: 400px; min-width: 120px; margin-right: 10px; flex: none;
   padding: 9px 14px 11px; box-sizing: border-box;
   background: var(--paper); color: var(--ink);
   border: 2.5px solid var(--ink); border-radius: 18px;
@@ -278,15 +278,15 @@ html, body {
 .clawd.mode-taskbar #strip:hover { background: linear-gradient(to top, rgba(217, 119, 87, .14), rgba(217, 119, 87, 0)); }
 .clawd.mode-taskbar #pet { left: 0; right: auto; bottom: 0; width: 112px; height: 75px; will-change: transform; }
 .clawd.mode-taskbar #fx { zoom: .7; }
-.clawd.mode-taskbar #ask { right: 5px; left: auto; bottom: 46px; width: 330px; }
+.clawd.mode-taskbar #ask { right: 5px; left: auto; bottom: 46px; width: 420px; }
 .clawd.mode-taskbar #work { right: 5px; left: auto; bottom: 98px; }
-.clawd.mode-taskbar #talk { right: 0; left: auto; bottom: 90px; width: 338px; }
+.clawd.mode-taskbar #talk { right: 0; left: auto; bottom: 90px; width: 428px; }
 .clawd.mode-taskbar.left #talk { left: 0; right: auto; }
 .clawd.mode-taskbar.left #ask, .clawd.mode-taskbar.left #work { left: 5px; right: auto; }
 
 /* ---------- cajita para escribirle (aparece al pasar el cursor) ---------- */
 #ask {
-  position: absolute; right: 10px; bottom: 6px; width: 330px; height: 42px;
+  position: absolute; right: 10px; bottom: 6px; width: 420px; height: 42px;
   box-sizing: border-box; padding: 0 5px;
   display: flex; align-items: center; gap: 4px;
   background: rgba(31, 30, 29, .97);
@@ -323,8 +323,8 @@ html, body {
    En el modo individual hay uno por ventana; en grupo y barra, todos en una sola.
    ===================================================================== */
 #stage { position: absolute; inset: 0; pointer-events: none; }
-.clawd { position: absolute; left: 0; top: 0; width: 430px; height: 480px; pointer-events: none; }
-.clawd.mode-taskbar { width: 340px; }
+.clawd { position: absolute; left: 0; top: 0; width: 520px; height: 480px; pointer-events: none; }
+.clawd.mode-taskbar { width: 430px; }
 .clawd #talk, .clawd #strip { pointer-events: auto; }
 body.shared .clawd { transition: transform 45ms linear; will-change: transform; }
 body.shared .clawd.leaving { transition: none; }
@@ -353,7 +353,7 @@ body.shared .clawd #ask, body.shared .clawd #talk, body.shared .clawd #says { di
 
 /* ---------- chat grupal (como un grupo de WhatsApp) ---------- */
 #group {
-  position: absolute; right: 16px; bottom: 120px; width: 370px;
+  position: absolute; right: 16px; bottom: 120px; width: 460px;
   display: none; flex-direction: column; align-items: stretch; gap: 8px;
   opacity: 0; transform: translateY(6px); pointer-events: none;
   transition: opacity .35s ease, transform .35s ease;
@@ -369,7 +369,7 @@ body.shared #group { display: flex; }
 #gfeed::-webkit-scrollbar { width: 6px; }
 #gfeed::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .35); border-radius: 3px; }
 .gmsg { display: flex; align-items: flex-end; gap: 7px; flex: none; }   /* sin esto se aplastan al llenarse */
-.gmsg .gcol { display: flex; flex-direction: column; min-width: 0; max-width: 300px; }
+.gmsg .gcol { display: flex; flex-direction: column; min-width: 0; max-width: 390px; }
 .gname {
   align-self: flex-start; margin: 0 0 2px 4px; padding: 1px 7px; border-radius: 8px;
   background: rgba(31, 30, 29, .82); color: #fff; font: 600 10.5px 'Segoe UI', sans-serif; white-space: nowrap;
@@ -408,7 +408,7 @@ body.shared #group { display: flex; }
 }
 #gask input::placeholder { color: rgba(255, 255, 255, .5); }
 #gToBtn {
-  display: flex; align-items: center; gap: 5px; height: 28px; max-width: 175px; padding: 0 9px 0 3px;
+  display: flex; align-items: center; gap: 5px; height: 28px; max-width: 200px; padding: 0 9px 0 3px;
   border: 1px solid rgba(255, 255, 255, .22); border-radius: 14px; background: rgba(255, 255, 255, .08);
   color: #fff; font: 600 11.5px 'Segoe UI', sans-serif; cursor: pointer; white-space: nowrap; overflow: hidden;
 }
@@ -471,3 +471,25 @@ body.shared #group { display: flex; }
 .gmsg.gsay .gb.open::before { background: linear-gradient(to bottom, #f6efe5 25%, transparent); }
 .gmsg.gsay .gb.open::after { background: linear-gradient(to top, #f6efe5 25%, transparent); }
 .say.open.fade-top::before, .say.open.fade-bot::after, .gmsg.gsay .gb.open.fade-top::before, .gmsg.gsay .gb.open.fade-bot::after { opacity: 1; }
+
+/* "Delegar": casilla en la barra para pedir que reparta el mensaje entre ayudantes */
+.chip.deleg { display: inline-flex; align-items: center; gap: 5px; }
+.deleg .ck { position: relative; width: 10px; height: 10px; box-sizing: border-box; border: 1.5px solid rgba(255, 255, 255, .7); border-radius: 3px; }
+.deleg.on { position: relative; isolation: isolate; background: transparent; border-color: transparent; color: #fff; }
+.deleg.on::before { content: ''; position: absolute; inset: -1px; z-index: -1; border-radius: inherit; background: var(--orange); filter: var(--ctint, none); }
+.deleg.on:hover::before { background: #e8906f; }
+.deleg.on .ck { background: #fff; border-color: #fff; }
+.deleg.on .ck::after {
+  content: ''; position: absolute; left: 2.6px; top: .2px; width: 2.4px; height: 5px;
+  border: solid #1f1e1d; border-width: 0 1.6px 1.6px 0; transform: rotate(45deg);
+}
+
+/* el color del Clawd con el que platicas: tus globos y el botón de enviar (solo el fondo, el texto queda nítido) */
+.bubble-you, .gmsg.you .gb, .send { position: relative; isolation: isolate; }
+.bubble-you, .gmsg.you .gb, .send, .send:hover, .send.stop { background: transparent; }
+.bubble-you::before, .gmsg.you .gb::before, .send::before {
+  content: ''; position: absolute; inset: 0; z-index: -1; pointer-events: none;
+  border-radius: inherit; background: var(--orange); filter: var(--ctint, none);
+}
+.send:hover::before { background: #e8906f; }
+.send.stop::before { background: #5c626b; filter: none; }

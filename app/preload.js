@@ -21,7 +21,7 @@ contextBridge.exposeInMainWorld('companion', {
   dragStart: (id) => ipcRenderer.invoke('drag:start', id),
   dragEnd: (id) => ipcRenderer.invoke('drag:end', id),
   menu: (id) => ipcRenderer.send('menu', id),
-  send: (id, text) => ipcRenderer.invoke('chat:send', id, text),
+  send: (id, text, opts) => ipcRenderer.invoke('chat:send', id, text, opts),
   cancel: (id) => ipcRenderer.send('chat:cancel', id),
   newChat: (id) => ipcRenderer.send('chat:new', id),
   focusClaude: () => ipcRenderer.send('focus-claude'),

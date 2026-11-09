@@ -414,7 +414,7 @@ function procHalt() { cancelAnimationFrame(proc.raf); proc.raf = 0; proc.wakeAt 
 // =====================================================================
 const wander = { x: 0, target: null, speed: 40, last: 0, raf: 0, onArrive: null };
 const boxW = () => el.pet.offsetWidth;
-const stripW = () => root.offsetWidth || (isBar() ? 340 : 430);   // el ancho de SU escenario (no de la ventana)
+const stripW = () => root.offsetWidth || (isBar() ? 430 : 520);   // el ancho de SU escenario (no de la ventana)
 function setPetX(x) { wander.x = x; if (isBar()) el.pet.style.transform = `translateX(${Math.round(x)}px)`; }
 function walkTo(x, speed, onArrive) {
   wander.target = x; wander.speed = speed || 40; wander.onArrive = onArrive || null;
@@ -806,6 +806,14 @@ $('btnNew').addEventListener('click', () => api0.summon());
 // recién invocado: su barrita queda lista para escribirle
 api.on('focus-chat', () => { showConvo(); el.input.focus(); });
 $('btnMic').addEventListener('click', () => { showConvo(); el.input.focus(); api.dictate(); });
+// "Delegar": se queda marcada hasta que la quites
+let delegOn = false;
+$('btnDeleg').addEventListener('click', () => {
+  delegOn = !delegOn;
+  $('btnDeleg').classList.toggle('on', delegOn);
+  $('btnDeleg').setAttribute('aria-pressed', String(delegOn));
+  el.input.focus();
+});
 // botones dentro de los globos (se crean al vuelo)
 el.thread.addEventListener('click', (e) => {
   const f = e.target.closest('[data-file]');
@@ -845,7 +853,7 @@ async function sendMsg() {
   showConvo();
   sessionActive = true; lastChatAt = Date.now();
   tick();
-  try { await api.send(text); } catch (e) { onDone({ text: String(e), error: true }); }
+  try { await api.send(text, delegOn ? { delegar: true } : undefined); } catch (e) { onDone({ text: String(e), error: true }); }
 }
 
 // ---------- globitos: la plática completa, con scroll ----------
@@ -1010,6 +1018,7 @@ function applyIdentity(d) {
   if (ident.sat !== 1) f.push(`saturate(${ident.sat})`);
   if (ident.bright !== 1) f.push(`brightness(${ident.bright})`);
   el.pet.style.setProperty('--tint', f.length ? f.join(' ') : 'none');
+  root.style.setProperty('--ctint', f.length ? f.join(' ') : 'none');   // tus globos y su botón de enviar, de su color
   if (ident.sleepMs) DEEP_SLEEP_MS = ident.sleepMs;
   if (ident.mainWalk && isBar() && wander.target !== null) stopWalk();
 }
@@ -1205,7 +1214,7 @@ function petApi(ID) {
     dragStart: () => api0.dragStart(ID),
     dragEnd: () => api0.dragEnd(ID),
     menu: () => api0.menu(ID),
-    send: (text) => api0.send(ID, text),
+    send: (text, opts) => api0.send(ID, text, opts),
     cancel: () => api0.cancel(ID),
     newChat: () => api0.newChat(ID),
     focusClaude: () => api0.focusClaude(),
@@ -1317,6 +1326,7 @@ function currentTarget() {
 }
 function renderTo() {
   const solo = G.pets.length <= 1;
+  gEl.box.style.setProperty('--ctint', tintOf(petInfo(currentTarget())));   // enviar y "Delegar": del color del Clawd elegido
   document.getElementById('gTo').classList.toggle('hide', solo);
   // con uno solo no hay a quién elegir: en su lugar va el botón del modelo (como en la barrita normal)
   const gm = document.getElementById('gModel');
@@ -1365,7 +1375,7 @@ function renderGroup(force) {
     }
     if (i.who === 'you') {
       return `<div class="gmsg you${pop}" data-k="${i.k}"><div class="gcol"><span class="gto">a ${esc0(p.name)}</span>` +
-        `<div class="gb">${esc0(i.text)}</div></div></div>`;
+        `<div class="gb" style="--ctint:${tintOf(p)}">${esc0(i.text)}</div></div></div>`;
     }
     const label = i.who === 'say' ? (p.model || '') : (p.chatModel || '');
     const head = `<span class="gname">${esc0(p.name)}${label ? ` <i>· ${esc0(label)}</i>` : ''}${i.who === 'say' ? ' <i>· en su sesión</i>' : ''}</span>`;
@@ -1452,8 +1462,15 @@ function groupSend() {
   if (p) p.emit('chat:external', { text });       // su laptop y sus animaciones
   G.live.set(id, { text: '', tool: '' });
   renderGroup();
-  api0.send(id, text);
+  api0.send(id, text, G.deleg ? { delegar: true } : undefined);
 }
+// "Delegar" del chat grupal: se queda marcada hasta que la quites
+document.getElementById('gDeleg').addEventListener('click', (e) => {
+  G.deleg = !G.deleg;
+  e.currentTarget.classList.toggle('on', G.deleg);
+  e.currentTarget.setAttribute('aria-pressed', String(G.deleg));
+  gEl.input.focus();
+});
 gEl.input.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); groupSend(); }
   else if (e.key === 'Escape') { gEl.input.value = ''; gEl.input.blur(); gEl.box.classList.remove('show'); }

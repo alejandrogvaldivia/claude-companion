@@ -78,12 +78,12 @@ const SYSTEM = [
 ].join(' ');
 
 // --- medidas (en px de diseño; se multiplican por el tamaño de ventana elegido) ---
-const DIMS = { desktop: { w: 430, h: 480 }, taskbar: { w: 340, h: 480 } };
+const DIMS = { desktop: { w: 520, h: 480 }, taskbar: { w: 430, h: 480 } };   // (+90: chat más ancho)
 const PET_LEFT_IN_WIN = 22;     // escritorio: el mini Claude a 22 px de la orilla (lado volteado)
 const PET_BOX_W = 186;          // escritorio: ancho de la caja del mini Claude
 const PET_BOTTOM = 50;          // escritorio: de la orilla de abajo de la ventana a sus pies
-const PET_SHIFT = 200;          // escritorio: cuánto se recorre al voltear la interfaz
-const TB_PET_X = 188;           // barra de tareas: dónde está el mini Clawd dentro de su ventana
+const PET_SHIFT = 290;          // escritorio: cuánto se recorre al voltear la interfaz
+const TB_PET_X = 278;           // barra de tareas: dónde está el mini Clawd dentro de su ventana
 const TB_BOX_W = 112;
 const CLAWD_FROM = 0.268;       // Clawd empieza al 26.8 % de su caja (arte oficial: x 736 de 2750)
 const CLAWD_MID = 0.486;        // el centro de Clawd dentro de su caja
@@ -1767,6 +1767,7 @@ function chatSend(p, text, opts) {
   if (extNames.length) sys += `\n\nTienes estas extensiones y puedes usarlas libremente: ${extNames.map(extLabel).join(', ')}.`;
   if (mcp && mcp.names.includes('companion')) sys += '\n\nSi te piden un documento, una nota, un PDF, una infografía u otro archivo, créalo de verdad con la herramienta "crear_archivo" (para PDF e imágenes, diseña una página HTML con buen CSS, sin JavaScript) y di dónde quedó.';
   if (opts.helper) sys += `\n\nEres ${recOf(p).name}, un Clawd ayudante que invocó ${opts.from || 'otro Clawd'} para UNA tarea. Hazla completa y entrega el resultado directo, sin hacer preguntas (nadie te va a contestar).`;
+  else if (mcp && mcp.names.includes('companion') && opts.delegate) sys += '\n\nEl usuario marcó la casilla "Delegar" para este mensaje: reparte el trabajo entre Clawds ayudantes con la herramienta "delegar" (una tarea por cada cosa que pida, con el modelo adecuado para cada una; si es una sola cosa, dásela a un ayudante). Cuando terminen, dale la respuesta final.';
   else if (mcp && mcp.names.includes('companion')) sys += '\n\nTienes la herramienta "delegar" para repartir trabajo entre Clawds ayudantes, pero úsala SOLO si el usuario te lo pide explícitamente en este mensaje (por ejemplo "delega", "reparte", "invoca ayudantes" o "que lo hagan otros Clawds"). Aunque te pidan varias cosas o algo grande, si no te piden delegar, hazlo tú mismo.';
   const args = ['-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages',
     '--model', c.model, '--tools', TOOLS, '--allowedTools', allowed, '--permission-mode', 'default',
@@ -1844,7 +1845,7 @@ function chatSend(p, text, opts) {
   groupDirty = true;
   return true;
 }
-ipcMain.handle('chat:send', (e, id, text) => { const p = petOf(e, id); return p ? chatSend(p, text) : false; });
+ipcMain.handle('chat:send', (e, id, text, o) => { const p = petOf(e, id); return p ? chatSend(p, text, { delegate: !!(o && o.delegar) }) : false; });
 
 // ---------- título de la plática (como el resto de las sesiones de la app) ----------
 function provisionalTitle(text) {
