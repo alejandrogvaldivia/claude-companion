@@ -5,6 +5,8 @@
 //   npm run release -- major     → 1.2.3 → 2.0.0   (cambios grandes)
 //   npm run release -- 1.5.0     → esa versión exacta
 //   … -- minor "Qué cambió"      → notas de la versión (si no, GitHub las arma con los commits)
+//   … -- minor notas.md          → notas de varias líneas desde un archivo (en Windows, npm corta los
+//                                   textos con saltos de línea, así que para notas largas usa un archivo)
 //
 // Hace: sube la versión en package.json → genera el instalador → commit + push → crea el Release
 // con el instalador, su .blockmap y latest.yml (lo que lee el actualizador automático).
@@ -32,7 +34,8 @@ function bump(v, how) {
 
 // (npm puede partir las notas en palabras: se vuelven a juntar)
 const [how, ...rest] = process.argv.slice(2);
-const notes = rest.join(' ').trim();
+let notes = rest.join(' ').trim();
+if (/\.(md|txt)$/i.test(notes) && fs.existsSync(path.resolve(root, notes))) notes = fs.readFileSync(path.resolve(root, notes), 'utf8').trim();
 const GH = gh();
 execFileSync(GH, ['auth', 'status'], { stdio: 'ignore' });               // falla si no has iniciado sesión
 const pkgFile = path.join(root, 'package.json');
@@ -62,6 +65,12 @@ run('git', ['tag', tag]);
 run('git', ['push']);
 run('git', ['push', 'origin', tag]);
 const args = ['release', 'create', tag, ...files, '--title', `Claude Companion ${version}`];
-if (notes) args.push('--notes', notes); else args.push('--generate-notes');
+let notesFile = null;
+if (notes) {
+  notesFile = path.join(require('os').tmpdir(), `claude-companion-notas-${version}.md`);
+  fs.writeFileSync(notesFile, notes + '\n');
+  args.push('--notes-file', notesFile);
+} else args.push('--generate-notes');
 run(GH, args);
+if (notesFile) fs.unlink(notesFile, () => {});
 console.log(`\n✓ Publicada ${tag}. Las apps instaladas la bajarán solas (si el repo es público).`);
