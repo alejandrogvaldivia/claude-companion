@@ -630,17 +630,32 @@ function waitLoop(now) {
   }
   return now >= waitUntil - 40;
 }
-const tickTimer = setInterval(() => { if (!dead) tick(); }, 150);
+const tickTimer = setInterval(() => { if (!dead) { tick(); if (elWork.classList.contains('compact')) placeCompact(); } }, 150);
 
 // =====================================================================
 //  Pastilla de estado de Claude Code
 // =====================================================================
 const STATUS_FLASH_MS = 8000;
 let statusFlashUntil = 0, statusPinned = false, statusFlashT = null;
-function statusVisible() {
-  if (!st.hasInfo || talkVisible || leaving) return false;
+const busyNow = () => st.mode === 'working' || st.mode === 'thinking';
+// lo completo (tareas + lo que va diciendo + la pastilla): al pasar el cursor, al decir algo nuevo, al pedir permiso
+function statusFull() {
   if (statusPinned || st.mode === 'attention') return true;
   return el.ask.classList.contains('show') || Date.now() < statusFlashUntil;
+}
+// mientras trabaja, la pastilla ("Editando main.js 12s") siempre está arriba de él, para saber qué hace
+function statusVisible() {
+  if (!st.hasInfo || talkVisible || leaving) return false;
+  return statusFull() || busyNow();
+}
+// barra de tareas: la pastilla sola sigue al Clawd mientras camina
+function placeCompact() {
+  if (!isBar() || !elWork.classList.contains('compact')) { elWork.style.left = ''; elWork.style.right = ''; elWork.style.bottom = ''; return; }
+  const w = el.status.offsetWidth || 160;
+  const x = Math.max(0, Math.min(stripW() - w, wander.x + boxW() / 2 - w / 2));
+  elWork.style.right = 'auto';
+  elWork.style.left = `${Math.round(x)}px`;
+  elWork.style.bottom = `${Math.round(8 + 44 * (ident.scale || 1))}px`;   // justo arriba de su cabeza (según su tamaño)
 }
 function flashStatus(ms) {
   statusFlashUntil = Date.now() + ms;
@@ -692,7 +707,10 @@ function renderStatus() {
   el.status.classList.toggle('busy', busy);
   renderPlan();
   renderSays();
-  elWork.classList.toggle('show', statusVisible());
+  const vis = statusVisible();
+  elWork.classList.toggle('show', vis);
+  elWork.classList.toggle('compact', vis && !statusFull());
+  placeCompact();
 }
 elPlan.addEventListener('click', () => api.openSession());
 api.on('status', (s) => {
@@ -891,7 +909,7 @@ function addClaude() {
   b.innerHTML =
     '<button class="x" title="Ocultar la plática">&#xE711;</button>' +
     `<div class="who"><span class="spark">&#x2733;</span> Claude <button class="model-tag" title="Cambiar el modelo">${esc(model.label)} &#x25BE;</button></div>` +
-    `<div class="tool"></div><div class="answer">${DOTS}</div>` +
+    '<div class="tool"></div><div class="answer"></div>' +
     '<div class="foot hide"><button class="to-session" title="Abre su sesión en Claude Desktop con tu mensaje y esta respuesta ya pegados (sin enviar)">Mandar a su sesión &#x21AA;</button><button class="open-app" title="Abrir esta plática, con todo su historial, en la app de Claude">Abrir en Claude &#x2197;</button></div>';
   el.thread.appendChild(b);
   cur = { box: b, tool: b.querySelector('.tool'), answer: b.querySelector('.answer'), foot: b.querySelector('.foot') };
@@ -903,6 +921,8 @@ function startExchange(question) {
   answerText = '';
   if (question) addYou(question);
   addClaude();
+  cur.toolLabel = 'Pensando…'; cur.toolT0 = Date.now();
+  cur.tool.innerHTML = livePill(cur.toolLabel, cur.toolT0);   // igual que arriba del Clawd
   openTalk();
   toBottom();
 }
@@ -924,8 +944,8 @@ api.on('chat:reset', () => { answerText = ''; });
 api.on('chat:tool', (d) => {
   if (!cur) return;
   const stick = nearBottom();
-  cur.tool.textContent = d;
-  if (!answerText) cur.answer.innerHTML = DOTS;
+  if (cur.toolLabel !== d) { cur.toolLabel = d; cur.toolT0 = Date.now(); }   // cada acción cuenta su tiempo
+  cur.tool.innerHTML = livePill(d, cur.toolT0);
   if (stick) toBottom();
 });
 api.on('chat:delta', (t) => {
@@ -1193,6 +1213,18 @@ document.addEventListener('scroll', (e) => { if (e.target instanceof Element && 
 new MutationObserver(fadeAll).observe(document.documentElement, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['class'] });
 window.addEventListener('resize', fadeAll);
 
+// "Pensando… 3s": el mismo indicador que sale arriba del Clawd (triángulo de puntitos + acción + segundos)
+const fmtSecs = (ms) => { const s = Math.floor(ms / 1000); return s < 2 ? '' : s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`; };
+function livePill(label, t0) {
+  t0 = t0 || Date.now();
+  return `<span class="lpill"><span class="spin3"><i></i><i></i><i></i></span><b>${esc0(label || 'Pensando…')}</b>` +
+    `<span class="lsec" data-t0="${t0}">${fmtSecs(Date.now() - t0)}</span></span>`;
+}
+setInterval(() => {
+  const now = Date.now();
+  document.querySelectorAll('.lsec[data-t0]').forEach((n) => { const t = fmtSecs(now - Number(n.dataset.t0)); if (n.textContent !== t) n.textContent = t; });
+}, 1000);
+
 // archivos que creó un Clawd: botoncitos para abrirlos
 const FILE_ICON = { pdf: '\u{1F4D5}', txt: '\u{1F4DD}', md: '\u{1F4DD}', html: '\u{1F310}', png: '\u{1F5BC}\uFE0F' };
 function fileChips(files) {
@@ -1326,7 +1358,8 @@ function currentTarget() {
 }
 function renderTo() {
   const solo = G.pets.length <= 1;
-  gEl.box.style.setProperty('--ctint', tintOf(petInfo(currentTarget())));   // enviar y "Delegar": del color del Clawd elegido
+  gEl.box.style.setProperty('--ctint', tintOf(petInfo(currentTarget())));
+  gFloor.style.setProperty('--ctint', tintOf(petInfo(currentTarget())));   // enviar y "Delegar": del color del Clawd elegido
   document.getElementById('gTo').classList.toggle('hide', solo);
   // con uno solo no hay a quién elegir: en su lugar va el botón del modelo (como en la barrita normal)
   const gm = document.getElementById('gModel');
@@ -1351,7 +1384,7 @@ function renderList() {
 function feedItems() {
   const out = [];
   for (const it of G.feed) out.push(it);
-  for (const [id, l] of G.live) out.push({ k: 'live-' + id, id, who: 'live', text: l.text, tool: l.tool, ts: Infinity });
+  for (const [id, l] of G.live) out.push({ k: 'live-' + id, id, who: 'live', text: l.text, tool: l.tool, t0: l.t0, ts: Infinity });
   return out;
 }
 function renderGroup(force) {
@@ -1381,7 +1414,7 @@ function renderGroup(force) {
     const head = `<span class="gname">${esc0(p.name)}${label ? ` <i>· ${esc0(label)}</i>` : ''}${i.who === 'say' ? ' <i>· en su sesión</i>' : ''}</span>`;
     let bub;
     if (i.who === 'say') bub = `<div class="gb" data-say="${i.id}">${esc0(i.text)}</div>`;
-    else if (i.who === 'live') bub = `<div class="gb">${i.tool && !i.text ? `<div class="tool">${esc0(i.tool)}</div>` : ''}${i.text ? mdG(i.text) + '<span class="caret"></span>' : '<span class="dots"><i></i><i></i><i></i></span>'}</div>`;
+    else if (i.who === 'live') bub = `<div class="gb" style="--ctint:${tintOf(p)}">${i.text ? mdG(i.text) + '<span class="caret"></span>' : ''}${!i.text || i.tool ? `<div class="tool">${livePill(i.tool || 'Pensando…', i.t0)}</div>` : ''}</div>`;
     else bub = `<div class="gb">${i.err ? `<span class="err">${esc0(i.text)}</span>` : mdG(i.text) + fileChips(i.files)}${i.last ? `<div class="gfoot">${p.hasSession ? `<button class="to-session" data-tosession="${i.id}" title="Abre su sesión en Claude Desktop con tu mensaje y esta respuesta ya pegados (sin enviar)">Mandar a su sesión &#x21AA;</button>` : ''}<button class="open-app" data-open="${i.id}" title="Abrir esta plática, con todo su historial, en la app de Claude">Abrir en Claude &#x2197;</button></div>` : ''}</div>`;
     return `<div class="gmsg ${i.who === 'say' ? 'gsay' : i.who}${pop}" data-k="${i.k}">${avHtml(p)}<div class="gcol">${head}${bub}</div></div>`;
   }).join('');
@@ -1407,9 +1440,9 @@ gEl.feed.addEventListener('click', (e) => {
 });
 // lo que va pasando en las pláticas, en vivo
 function groupOnPet(id, ch, d) {
-  if (ch === 'chat:reset' || ch === 'chat:external') { if (!G.live.has(id) || ch === 'chat:external') G.live.set(id, { text: '', tool: '' }); else G.live.get(id).text = ''; }
-  else if (ch === 'chat:tool') { const l = G.live.get(id) || { text: '' }; l.tool = d; G.live.set(id, l); }
-  else if (ch === 'chat:delta') { const l = G.live.get(id) || { text: '' }; l.text += d; l.tool = ''; G.live.set(id, l); }
+  if (ch === 'chat:reset' || ch === 'chat:external') { if (!G.live.has(id) || ch === 'chat:external') G.live.set(id, { text: '', tool: '', t0: Date.now() }); else G.live.get(id).text = ''; }
+  else if (ch === 'chat:tool') { const l = G.live.get(id) || { text: '', t0: Date.now() }; if (l.tool !== d) l.t0 = Date.now(); l.tool = d; G.live.set(id, l); }
+  else if (ch === 'chat:delta') { const l = G.live.get(id) || { text: '' }; l.text += d; if (l.tool) l.t0 = Date.now(); l.tool = ''; G.live.set(id, l); }
   else if (ch === 'chat:done' || ch === 'chat:cleared' || ch === 'chat:handed-off') G.live.delete(id);
   else return;
   renderGroup();
@@ -1422,6 +1455,24 @@ function groupShow(id) {
   gEl.box.classList.add('show');
   renderGroup();
 }
+// barra de tareas: brillo del piso bajo el chat (mismo ancho y lugar que el chat, al ras de la barra)
+const gFloor = document.getElementById('gfloor');
+function syncFloor() {
+  const on = PAGE.shared && PAGE.mode === 'taskbar' && gEl.box.classList.contains('show');
+  if (on) {
+    const any = [...PAGE.pets.values()].find((p) => p.root && p.root.offsetHeight);
+    const g = gEl.box.getBoundingClientRect();
+    if (any && g.width) {
+      const r = any.root.getBoundingClientRect();
+      gFloor.style.left = `${Math.round(g.left)}px`;
+      gFloor.style.width = `${Math.round(g.width)}px`;
+      gFloor.style.top = `${Math.round(r.bottom - 40)}px`;
+    }
+  }
+  gFloor.classList.toggle('show', on);
+  document.body.classList.toggle('gopen', on);   // con el chat abierto, las pastillas de arriba se esconden (si no, quedan tras la barra)
+}
+new MutationObserver(syncFloor).observe(gEl.box, { attributes: true, attributeFilter: ['class', 'style'] });
 function groupBusy() { return G.hover || G.listOpen || (document.activeElement === gEl.input && document.hasFocus()) || G.live.size > 0; }
 function groupScheduleHide() {
   if (!PAGE.shared) return;
@@ -1460,7 +1511,7 @@ function groupSend() {
   gEl.input.value = '';
   const p = PAGE.pets.get(id);
   if (p) p.emit('chat:external', { text });       // su laptop y sus animaciones
-  G.live.set(id, { text: '', tool: '' });
+  G.live.set(id, { text: '', tool: '', t0: Date.now() });
   renderGroup();
   api0.send(id, text, G.deleg ? { delegar: true } : undefined);
 }
