@@ -982,6 +982,8 @@ function computeStatus(list, single) {
 let claudeOpen = null;                 // Claude Desktop abierto (lo dice bin/clawd.exe)
 let manualShow = false;                // lo abriste a mano (menú Inicio / "Mostrar a Clawd")
 let userHidden = false;                // "Cerrar": se van todos hasta que vuelvas a abrir Claude
+let hostUntil = 0;                     // hasta cuándo puede llegar el Clawd sin sesión (al abrir Claude o "Mostrar")
+const welcomeHost = () => { hostUntil = Date.now() + 15000; };
 const dismissed = {};                  // sid -> ts: "Ocultar este Clawd" (vuelve cuando su sesión trabaje)
 const URGENT = new Set(['working', 'thinking', 'attention', 'error']);
 
@@ -1011,11 +1013,14 @@ function reconcile(list) {
     if (p.sid && !wantIds.has(p.sid)) { if (++p.missing >= 3) extra.push(p); }
     else p.missing = 0;
   }
-  if (allow && extra.length) {
-    // si se iría el último, se queda uno (dormido) para que siempre tengas a Clawd mientras Claude está abierto
-    const remaining = livePets().filter((p) => !extra.includes(p));
-    if (!remaining.length) extra.sort((a, b) => b.createdAt - a.createdAt).shift();
-    for (const p of extra) byePet(p, 'sesión inactiva o terminada');
+  // más de 5 min sin actividad: se van todos, aunque sea el último
+  if (allow) for (const p of extra) byePet(p, 'sesión inactiva o terminada');
+  // el Clawd sin sesión también se va si nadie platica con él en 5 min
+  if (allow) {
+    for (const p of livePets()) {
+      if (p.sid || p.extra || p.helper || (p.chat && p.chat.proc)) continue;
+      if (Date.now() - Math.max(p.createdAt, p.lastChatAt || 0) > cfg.timing.hideMs) byePet(p, 'sin actividad');
+    }
   }
   if (!allow) return;
   for (const s of want) {
@@ -1036,8 +1041,10 @@ function reconcile(list) {
     if ([...pets.values()].some((p) => p.extra === x && p.alive)) continue;
     const p = new Pet(null); p.extra = x; ensureIdentity(p); createPetWindow(p, !OPTS.noIntro);
   }
-  // un Clawd siempre, aunque no haya sesiones (para platicar con él)
-  if (!livePets().length && ![...pets.values()].some((p) => p.alive)) {
+  // sin sesiones activas: llega uno para platicar, solo al abrir Claude o con "Mostrar a Clawd"
+  if (livePets().length) hostUntil = 0;           // ya hay alguien: cuando se vaya, no llega otro
+  if (Date.now() < hostUntil && !livePets().length && ![...pets.values()].some((p) => p.alive)) {
+    hostUntil = 0;
     const p = new Pet(null);
     createPetWindow(p, !OPTS.noIntro);
   }
@@ -2154,6 +2161,7 @@ function hideAll() {
 function showAll() {
   userHidden = false;
   manualShow = true;
+  welcomeHost();
   managerTick();
   refreshTray();
 }
@@ -2369,7 +2377,7 @@ function onClaude(open) {
   const was = claudeOpen;
   claudeOpen = open;
   log(`Claude Desktop ${open ? 'abierto' : 'cerrado'}`);
-  if (open && was !== true) userHidden = false;            // abriste Claude: regresan
+  if (open && was !== true) { userHidden = false; welcomeHost(); }   // abriste Claude: regresan
   if (!open && was === true) manualShow = false;           // cerraste Claude del todo: se despiden
   managerTick();
 }
@@ -2451,7 +2459,7 @@ app.whenReady().then(async () => {
   await firstRun();
   initUpdates();
   // si lo abriste a mano aparece de inmediato; al iniciar Windows espera a que abras Claude
-  if (!BACKGROUND) manualShow = true;
+  if (!BACKGROUND) { manualShow = true; welcomeHost(); }
   managerTick();
   // prueba: simula que eliges "Cerrar" en el menú a los N ms
   if (process.env.COMPANION_TEST_CLOSE_AT) setTimeout(hideAll, Number(process.env.COMPANION_TEST_CLOSE_AT));
