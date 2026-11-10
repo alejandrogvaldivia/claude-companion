@@ -650,6 +650,21 @@ ipcMain.handle('opts:get', (e, id) => {
 });
 ipcMain.on('trace', (e, id, m) => { if (OPTS.trace) { const p = petOf(e, id); log(`trace#${p ? p.id : '?'} ${m}`); } });
 // ratón: transparente salvo donde hay algo
+// cursor encima o chat abierto sobre él: se detiene y no sale a pasear (para poder leer el chat)
+ipcMain.on('pet:hold', (_e, id, on) => {
+  const p = pets.get(Number(id));
+  if (!p || !p.alive) return;
+  p.hold = !!on;
+  if (!p.hold) return;
+  if (p.move && !p.social) { stopMove(p, true); log(`Clawd #${p.id} se detiene (cursor o chat encima)`); }
+  if (p.walking) {                                   // venía entrando: se queda donde va
+    stopEntranceWalk(p);
+    p.entranceInfo = null;
+    p.send('walk', { dir: 0 });
+    setTimeout(() => { checkSide(p); savePos(p); }, 60);
+    log(`Clawd #${p.id} se detiene al entrar (cursor encima)`);
+  }
+});
 ipcMain.on('interactive', (e, on) => { const w = BrowserWindow.fromWebContents(e.sender); if (w && !w.isDestroyed()) w.setIgnoreMouseEvents(!on, { forward: true }); });
 
 // ---------- entrada: camina desde la orilla hasta su lugar ----------
@@ -1255,7 +1270,7 @@ function sortDepth() {
 }
 
 function availableFor(p, now) {
-  if (!p.alive || p.leaving || p.entranceInfo || p.walking || p.drag || p.social || p.move) return false;
+  if (!p.alive || p.leaving || p.entranceInfo || p.walking || p.drag || p.social || p.move || p.hold) return false;
   if (p.chat && p.chat.proc) return false;                        // platicando contigo
   if (p.mode === 'idle') return true;
   if (p.mode === 'sleep') return now - p.modeSince < Math.max(4000, cfg.timing.sleepMs - 8000); // aún no se queda dormido

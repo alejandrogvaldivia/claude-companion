@@ -810,6 +810,13 @@ for (const n of [el.pet, el.ask, $('work')]) {
 }
 // barra de tareas: toda la franja abre el chat al pasar el cursor (con una espera cortita)
 let stripT = null;
+let stripIn = false;
+el.strip.addEventListener('mouseenter', () => {
+  stripIn = true;
+  if (isBar() && wander.target !== null) wander.target = wander.x;   // si venía caminando (o entrando), se queda ahí
+  if (PAGE.onHover) PAGE.onHover();
+});
+el.strip.addEventListener('mouseleave', () => { stripIn = false; if (PAGE.onHover) PAGE.onHover(); });
 el.strip.addEventListener('mouseenter', () => {
   clearTimeout(stripT);
   stripT = setTimeout(() => { hovering = true; showConvo(); }, BAR_HOVER_MS);
@@ -1213,7 +1220,7 @@ function destroy() {
 }
 // su luz: ocupado (trabajando o contestándote) pulsa, dormido respira, si no, quieta
 const glow = () => (busyNow() || chatBusy ? 'busy' : visual === 'nap' ? 'sleep' : 'idle');
-return { root, emit: api._emit, destroy, socialOk, glow, hovering: () => hovering || talkHover };
+return { root, emit: api._emit, destroy, socialOk, glow, stripIn: () => stripIn, hovering: () => hovering || talkHover };
 } // fin de createClawd
 
 // =====================================================================
@@ -1380,10 +1387,35 @@ function mdG(s) {
   return h.replace(/\n/g, '<br>');
 }
 function placeGroup(pos) {
+  G.pos = pos;
+  if (anchorGroup()) { gEl.box.style.bottom = `${pos.bottom}px`; return; }
   gEl.box.style.right = pos.right != null ? `${pos.right}px` : 'auto';
   gEl.box.style.left = pos.left != null ? `${pos.left}px` : 'auto';
   gEl.box.style.bottom = `${pos.bottom}px`;
 }
+// barra de tareas: el chat va centrado sobre el Clawd al que le pasaste el cursor (solo se recorre si no cabe)
+function anchorGroup() {
+  if (PAGE.mode !== 'taskbar' || !G.anchor) return false;
+  const p = PAGE.pets.get(G.anchor);
+  if (!p || !p.root) { G.anchor = null; if (G.pos) placeGroup(G.pos); return false; }
+  const pr = p.root.querySelector('#pet').getBoundingClientRect();
+  const w = gEl.box.offsetWidth || 460;
+  const cx = pr.left + pr.width * 0.486;
+  const x = Math.max(6, Math.min(window.innerWidth - w - 6, cx - w / 2));
+  gEl.box.style.right = 'auto';
+  gEl.box.style.left = `${Math.round(x)}px`;
+  return true;
+}
+// se detienen (no caminan) el Clawd bajo el cursor y el que tiene el chat abierto encima
+const held = new Set();
+function updateHolds() {
+  const want = new Set();
+  for (const [id, p] of PAGE.pets) if (p.stripIn && p.stripIn()) want.add(id);
+  if (G.anchor && gEl.box.classList.contains('show')) want.add(G.anchor);
+  for (const id of want) if (!held.has(id)) { held.add(id); api0.hold(id, true); }
+  for (const id of [...held]) if (!want.has(id)) { held.delete(id); api0.hold(id, false); }
+}
+PAGE.onHover = updateHolds;
 function currentTarget() {
   if (G.target && G.pets.some((p) => p.id === G.target)) return G.target;
   G.target = G.pets.length ? G.pets[0].id : null;
@@ -1484,7 +1516,10 @@ function groupShow(id) {
   if (!PAGE.shared) return;
   clearTimeout(G.hideT);
   if (id && document.activeElement !== gEl.input && !G.listOpen) { G.target = id; }
+  if (id && PAGE.mode === 'taskbar' && document.activeElement !== gEl.input && !G.listOpen) G.anchor = id;   // se abre sobre ese Clawd (si estás escribiendo, no se mueve)
+  anchorGroup();
   gEl.box.classList.add('show');
+  updateHolds();
   renderGroup();
 }
 // barra de tareas: brillo del piso bajo el chat (mismo ancho y lugar que el chat, al ras de la barra)
@@ -1519,8 +1554,12 @@ function placeGlows() {
   }
   gFloor.querySelectorAll('.glow').forEach((g) => { if (!seen.has(g.dataset.id)) g.remove(); });
 }
-setInterval(() => { if (gFloor.classList.contains('show')) placeGlows(); }, 120);   // lo siguen al caminar
+setInterval(() => {
+  if (gFloor.classList.contains('show')) placeGlows();   // lo siguen al caminar
+  if (gEl.box.classList.contains('show') && G.anchor) anchorGroup();   // el chat, siempre sobre su Clawd
+}, 120);
 function syncFloor() {
+  updateHolds();
   const bar = PAGE.shared && PAGE.mode === 'taskbar';
   const on = bar && gEl.box.classList.contains('show');
   gFloor.classList.toggle('full', on);
