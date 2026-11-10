@@ -414,7 +414,13 @@ body.shared #group { display: flex; }
 }
 #gToBtn:hover { background: rgba(255, 255, 255, .18); }
 #gToBtn .av { --d: 21px; }
-#gToName { overflow: hidden; text-overflow: ellipsis; }
+/* chiquito (solo su foto y la flechita); al pasar el cursor (o con la lista abierta) sale el nombre */
+#gToBtn { padding: 0 7px 0 3px; transition: background .2s ease; }
+#gToName {
+  overflow: hidden; text-overflow: ellipsis; max-width: 0; opacity: 0; margin-right: -5px;
+  transition: max-width .3s cubic-bezier(.3, 1.15, .5, 1), opacity .2s ease, margin-right .3s ease;
+}
+#gToBtn:hover #gToName, #gToBtn.open #gToName, #gToBtn:focus-visible #gToName { max-width: 150px; opacity: 1; margin-right: 0; }
 /* lista de Clawds para elegir a quién le escribes (y su modelo) */
 #gList {
   position: absolute; z-index: 30; left: 8px; bottom: 50px; width: 270px; box-sizing: border-box; padding: 6px;
