@@ -495,22 +495,24 @@ body.shared #group { display: flex; }
 .send.stop::before { background: #5c626b; filter: none; }
 
 /* barra de tareas (ventana compartida): el brillo del piso va bajo el chat, de su mismo ancho y del color del Clawd */
-#gfloor {
-  position: absolute; display: none; height: 64px; pointer-events: none;
-  /* un brillo de luz: núcleo intenso al ras del piso que se desvanece hacia arriba y a los lados */
+#gfloor { position: absolute; display: none; height: 90px; pointer-events: none; z-index: 0; opacity: 0; transition: opacity .35s ease; }
+#stage { z-index: 1; }   /* la luz va detrás de los Clawds */
+body.shared #gfloor { display: block; }
+body.shared #group { z-index: 2; }   /* el chat, encima de los Clawds y de la luz */
+/* la luz de cada Clawd: núcleo intenso al ras del piso que se desvanece hacia arriba y a los lados */
+#gfloor .glow {
+  position: absolute; bottom: 0; transition: left .12s linear, opacity .3s ease;
   background:
     radial-gradient(ellipse 44% 72% at 50% 100%, rgba(255, 150, 100, .62), rgba(235, 115, 70, .24) 45%, rgba(217, 119, 87, 0) 100%),
     radial-gradient(ellipse 49% 34% at 50% 100%, rgba(255, 140, 90, .4), rgba(217, 119, 87, 0) 100%);
   mix-blend-mode: screen; filter: var(--ctint, none);
-  opacity: 0; transition: opacity .35s ease;
 }
 /* la línea de luz sobre el piso */
-#gfloor::after {
-  content: ''; position: absolute; left: 6%; right: 6%; bottom: 0; height: 2px; border-radius: 2px;
+#gfloor .glow::after {
+  content: ''; position: absolute; left: 10%; right: 10%; bottom: 0; height: 2px; border-radius: 2px;
   background: radial-gradient(ellipse 50% 100% at 50% 50%, rgba(255, 225, 200, .95), rgba(255, 140, 90, .55) 55%, rgba(255, 130, 80, 0) 100%);
   filter: blur(.5px);
 }
-body.shared #gfloor { display: block; }
 #gfloor.show { opacity: 1; }
 body.shared .clawd.mode-taskbar #strip:hover { background: none; }
 

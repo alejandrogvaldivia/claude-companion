@@ -1378,7 +1378,6 @@ function currentTarget() {
 function renderTo() {
   const solo = G.pets.length <= 1;
   gEl.box.style.setProperty('--ctint', tintOf(petInfo(currentTarget())));
-  gFloor.style.setProperty('--ctint', tintOf(petInfo(currentTarget())));   // enviar y "Delegar": del color del Clawd elegido
   document.getElementById('gTo').classList.toggle('hide', solo);
   // con uno solo no hay a quién elegir: en su lugar va el botón del modelo (como en la barrita normal)
   const gm = document.getElementById('gModel');
@@ -1476,18 +1475,37 @@ function groupShow(id) {
 }
 // barra de tareas: brillo del piso bajo el chat (mismo ancho y lugar que el chat, al ras de la barra)
 const gFloor = document.getElementById('gfloor');
+// cada Clawd tiene su luz debajo, de su color; si están cerca, las luces se mezclan. Tamaño e intensidad
+// según su modelo (como el Clawd): un Haiku tiene una luz más chica y suave, así no se pierde en ella
+function placeGlows() {
+  const list = [...PAGE.pets.entries()].filter(([, p]) => p.root && p.root.offsetHeight);
+  if (!list.length) return;
+  const floor = list[0][1].root.getBoundingClientRect().bottom;
+  gFloor.style.left = '0px';
+  gFloor.style.width = `${window.innerWidth}px`;
+  gFloor.style.top = `${Math.round(floor - (gFloor.offsetHeight || 90))}px`;
+  const seen = new Set();
+  for (const [id, p] of list) {
+    const key = String(id);
+    seen.add(key);
+    let g = gFloor.querySelector(`.glow[data-id="${key}"]`);
+    if (!g) { g = document.createElement('div'); g.className = 'glow'; g.dataset.id = key; gFloor.appendChild(g); }
+    const pe = p.root.querySelector('#pet');
+    const r = pe.getBoundingClientRect();
+    const s = Math.max(.4, Math.min(1, parseFloat(getComputedStyle(pe).getPropertyValue('--s')) || 1));
+    const w = Math.round(150 + 190 * s);
+    g.style.left = `${Math.round(r.left + r.width * 0.486 - w / 2)}px`;   // centrada en el Clawd
+    g.style.width = `${w}px`;
+    g.style.height = `${Math.round(40 + 44 * s)}px`;
+    g.style.opacity = (0.2 + 0.8 * s).toFixed(2);                         // Opus 1 · Sonnet .8 · Haiku .6
+    g.style.setProperty('--ctint', tintOf(petInfo(id)));
+  }
+  gFloor.querySelectorAll('.glow').forEach((g) => { if (!seen.has(g.dataset.id)) g.remove(); });
+}
+setInterval(() => { if (gFloor.classList.contains('show')) placeGlows(); }, 120);   // lo siguen al caminar
 function syncFloor() {
   const on = PAGE.shared && PAGE.mode === 'taskbar' && gEl.box.classList.contains('show');
-  if (on) {
-    const any = [...PAGE.pets.values()].find((p) => p.root && p.root.offsetHeight);
-    const g = gEl.box.getBoundingClientRect();
-    if (any && g.width) {
-      const r = any.root.getBoundingClientRect();
-      gFloor.style.left = `${Math.round(g.left)}px`;
-      gFloor.style.width = `${Math.round(g.width)}px`;
-      gFloor.style.top = `${Math.round(r.bottom - (gFloor.offsetHeight || 64))}px`;
-    }
-  }
+  if (on) placeGlows();
   gFloor.classList.toggle('show', on);
   document.body.classList.toggle('gopen', on);   // con el chat abierto, las pastillas de arriba se esconden (si no, quedan tras la barra)
 }
@@ -1507,6 +1525,11 @@ gEl.box.addEventListener('mouseenter', () => { G.hover = true; clearTimeout(G.hi
 gEl.box.addEventListener('mouseleave', () => { G.hover = false; groupScheduleHide(); });
 gEl.input.addEventListener('blur', () => setTimeout(groupScheduleHide, 60));
 window.addEventListener('blur', () => setTimeout(groupScheduleHide, 60));
+// el menú "Responder a" se cierra al hacer clic en otra cosa (aquí o en otra ventana)
+function closeList() { if (!G.listOpen) return; G.listOpen = false; gEl.list.classList.remove('open'); }
+document.addEventListener('mousedown', (e) => { if (G.listOpen && !gEl.list.contains(e.target) && !gEl.to.contains(e.target)) closeList(); }, true);
+window.addEventListener('blur', () => { if (!G.menuOpen) closeList(); });   // (el menú de modelo no cuenta)
+window.addEventListener('focus', () => { G.menuOpen = false; });
 // elegir a quién le escribes
 gEl.to.addEventListener('click', () => {
   G.listOpen = !G.listOpen;
@@ -1515,7 +1538,7 @@ gEl.to.addEventListener('click', () => {
 });
 gEl.list.addEventListener('click', (e) => {
   const m = e.target.closest('[data-model]');
-  if (m) { e.stopPropagation(); api0.modelMenu(Number(m.dataset.model)); return; }
+  if (m) { e.stopPropagation(); G.menuOpen = true; api0.modelMenu(Number(m.dataset.model)); return; }
   const r = e.target.closest('.grow');
   if (!r) return;
   G.target = Number(r.dataset.id);
