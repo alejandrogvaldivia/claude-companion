@@ -307,7 +307,7 @@ html, body {
   font-family: var(--icons); font-size: 13px;
 }
 .icon { background: transparent; color: rgba(255, 255, 255, .9); }
-.icon:hover { background: rgba(255, 255, 255, .18); }
+.icon:hover { background-color: rgba(255, 255, 255, .18); }   /* solo el color: así el dibujo del Clawd+ no desaparece */
 .chip {
   flex: none; height: 22px; padding: 0 8px; border: 1px solid rgba(255, 255, 255, .22); border-radius: 11px;
   background: rgba(255, 255, 255, .08); color: rgba(255, 255, 255, .85);
