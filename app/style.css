@@ -617,3 +617,21 @@ body.shared.bar-follow #group { transition: opacity .35s ease, transform .35s ea
 .poof .spk { filter: var(--ctint, none); }
 #pet.poof-gone #body { opacity: 0; }
 
+
+/* ---------- pestañas del chat con varios Clawds: [el Clawd al que le escribes] [General] ---------- */
+#gTabs { display: flex; gap: 6px; align-self: flex-start; padding: 0 2px; }
+#gTabs.hide { display: none; }
+#gTabs button {
+  position: relative; isolation: isolate; display: flex; align-items: center; gap: 6px; max-width: 200px;
+  padding: 4px 11px 5px; border-radius: 999px; border: 1px solid rgba(255, 255, 255, .14); cursor: pointer;
+  background: rgba(31, 30, 29, .88); color: rgba(255, 255, 255, .7); font: 600 12px 'Segoe UI', sans-serif;
+  transition: color .15s ease, border-color .15s ease;
+}
+#gTabs button span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#gTabs button:hover { color: #fff; border-color: rgba(255, 255, 255, .3); }
+#gTabs button .av { --d: 16px; flex: none; }
+#gTabs button.on { color: #fff; border-color: transparent; }
+#gTabs button.on::before {          /* la activa, del color del Clawd al que le escribes */
+  content: ''; position: absolute; inset: -1px; z-index: -1; border-radius: inherit;
+  background: var(--orange); filter: var(--ctint, none);
+}

@@ -1512,7 +1512,7 @@ api0.init().then((o) => {
 //  Chat grupal (como un grupo de WhatsApp)
 // =====================================================================
 const G = {
-  pets: [], feed: [], live: new Map(), target: null,
+  pets: [], feed: [], live: new Map(), target: null, tab: 'one',
   hover: false, hideT: null, key: '', openSay: null, listOpen: false,
 };
 const gEl = {
@@ -1603,14 +1603,37 @@ function feedItems() {
   const out = [];
   for (const it of G.feed) out.push(it);
   for (const [id, l] of G.live) out.push({ k: 'live-' + id, id, who: 'live', text: l.text, tool: l.tool, t0: l.t0, ts: Infinity });
-  return out;
+  if (G.pets.length <= 1 || G.tab === 'all') return out;
+  // pestaña de un Clawd: lo que te dice, lo que le escribes, y lo que él les encarga a sus ayudantes
+  const t = currentTarget(), me = petInfo(t);
+  return out.filter((i) => i.id === t || (me && i.from && i.from === me.name));
 }
+function renderTabs() {
+  const tabs = document.getElementById('gTabs');
+  const solo = G.pets.length <= 1;
+  tabs.classList.toggle('hide', solo);
+  if (solo) return;
+  const p = petInfo(currentTarget());
+  const one = document.getElementById('gTabOne');
+  const html = `${p ? avHtml(p) : ''}<span>${esc0(p ? p.name : 'Clawd')}</span>`;
+  if (one.innerHTML !== html) one.innerHTML = html;
+  one.classList.toggle('on', G.tab === 'one');
+  document.getElementById('gTabAll').classList.toggle('on', G.tab === 'all');
+}
+document.getElementById('gTabs').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-tab]');
+  if (!b || G.tab === b.dataset.tab) return;
+  G.tab = b.dataset.tab;
+  renderGroup(true);
+  gEl.feed.scrollTop = gEl.feed.scrollHeight;
+});
 function renderGroup(force) {
   if (!PAGE.shared) return;
   renderTo();
+  renderTabs();
   if (G.listOpen) renderList();
   const items = feedItems();
-  const key = JSON.stringify(items.map((i) => [i.k, i.text && i.text.length, i.tool])) + JSON.stringify(G.pets.map((p) => [p.id, p.name, p.hue, p.chatModel, p.model]));
+  const key = JSON.stringify(items.map((i) => [i.k, i.text && i.text.length, i.tool])) + JSON.stringify(G.pets.map((p) => [p.id, p.name, p.hue, p.chatModel, p.model])) + G.tab + currentTarget();
   if (!force && (key === G.key || G.openSay)) return;
   G.key = key;
   const stick = gEl.feed.scrollHeight - gEl.feed.scrollTop - gEl.feed.clientHeight < 40;
