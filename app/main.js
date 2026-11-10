@@ -1071,19 +1071,31 @@ function sessionVisible(s) {
 }
 const prio = (s) => (s.state === 'attention' ? 0 : s.state === 'working' ? 1 : 2);
 // platicar con su Clawd (o que esté contestando / repartiendo trabajo) también cuenta como actividad
+// fijado por ti: no se va solo aunque su sesión esté inactiva (y tarda 5 min en dormirse)
+const isPinnedSid = (sid) => !!(cfg.clawds[sid] && cfg.clawds[sid].pinned);
+const PIN_SLEEP_MS = 5 * 60 * 1000;
+const canPin = (p) => !!(p.sid || (p.extra && !p.helper));
+function setPinned(p, on) {
+  const rec = recOf(p);
+  rec.pinned = !!on;
+  saveCfg();
+  log(`Clawd #${p.id} ${on ? 'fijado' : 'ya no está fijado'}`);
+  sendIdentity(p, true);
+  groupKey = '';
+}
 function chatActive(sid) {
   return livePets().some((p) => p.sid === sid && ((p.chat && p.chat.proc) || Date.now() - (p.lastChatAt || 0) < cfg.timing.hideMs));
 }
 
 function reconcile(list) {
   const allow = petsAllowed();
-  const want = allow ? list.filter((s) => sessionVisible(s) || chatActive(s.sid)).sort((a, b) => prio(a) - prio(b) || a.age - b.age).slice(0, cfg.maxPets) : [];
+  const want = allow ? list.filter((s) => sessionVisible(s) || chatActive(s.sid) || isPinnedSid(s.sid)).sort((a, b) => prio(a) - prio(b) || a.age - b.age).slice(0, cfg.maxPets) : [];
   const wantIds = new Set(want.map((s) => s.sid));
   // los que sobran: se despiden (con unos segundos de gracia por si la lectura falló)
   const extra = [];
   for (const p of livePets()) {
     if (!allow) { byePet(p, 'Claude cerrado'); continue; }
-    if (p.sid && !wantIds.has(p.sid)) { if (++p.missing >= 3) extra.push(p); }
+    if (p.sid && !wantIds.has(p.sid) && !recOf(p).pinned) { if (++p.missing >= 3) extra.push(p); }
     else p.missing = 0;
   }
   // más de 5 min sin actividad: se van todos, aunque sea el último
@@ -1092,7 +1104,7 @@ function reconcile(list) {
   // en 5 min (si lo tienes bajo el cursor o con el chat abierto encima, no cuenta como inactivo)
   if (allow) {
     for (const p of livePets()) {
-      if (p.sid || p.helper || p.hold || (p.chat && p.chat.proc)) continue;
+      if (p.sid || p.helper || p.hold || (p.chat && p.chat.proc) || recOf(p).pinned) continue;   // los fijados se quedan
       if (Date.now() - Math.max(p.createdAt, p.lastChatAt || 0, p.lastHold || 0) <= cfg.timing.hideMs) continue;
       if (p.extra) dismissExtra(p, 'sin actividad'); else byePet(p, 'sin actividad');
     }
@@ -1166,7 +1178,9 @@ function identityOf(p, info) {
     lead: p === leadPet(),
     mainWalk: isBar() || mode === 'group',
     session: !!p.sid,
-    sleepMs: cfg.timing.sleepMs,
+    role: (rec.role && rec.role.title) || (rec.role && rec.role.text ? 'Entrenado' : ''),
+    pinned: !!rec.pinned && canPin(p),
+    sleepMs: rec.pinned && canPin(p) ? Math.max(PIN_SLEEP_MS, cfg.timing.sleepMs) : cfg.timing.sleepMs,
   };
 }
 let lastList = [];
@@ -1202,6 +1216,7 @@ function sendGroup() {
     return {
       // trabajando en su sesión: en el chat sale "escribiendo…" (los 3 puntitos)
       working: !!(st && (st.mode === 'working' || st.mode === 'thinking')), activity: st ? String(st.title || '').slice(0, 60) : '',
+      role: (rec.role && rec.role.title) || '', pinned: !!rec.pinned && canPin(p),
       id: p.id, name: rec.name || 'Clawd', hue: col.hue || 0, sat: col.sat === undefined ? 1 : col.sat, bright: col.bright || 1,
       model: mf.sure ? mf.fam[0].toUpperCase() + mf.fam.slice(1) : '', chatModel: modelInfo(c.model).label.split(' ')[0],
       chatBusy: !!c.proc, hasSession: !!p.sid, hasChat: !!(last && last.who !== 'sep'),
@@ -1851,6 +1866,8 @@ function chatSend(p, text, opts) {
   const allowed = [TOOLS, ...(mcp ? mcp.names.map((n) => `mcp__${n}`) : [])].join(',');
   const extNames = petExtensions(p);
   let sys = SYSTEM + (linked ? sessionContext(p) : '');
+  const role = recOf(p).role;
+  if (role && (role.text || role.title)) sys += `\n\nEl usuario te entrenó para una función específica${role.title ? ` ("${role.title}")` : ''}. Cúmplela siempre en esta plática${role.text ? `; sus instrucciones:\n${role.text}` : '.'}`;
   if (extNames.length) sys += `\n\nTienes estas extensiones y puedes usarlas libremente: ${extNames.map(extLabel).join(', ')}.`;
   if (mcp && mcp.names.includes('companion')) sys += '\n\nSi te piden un documento, una nota, un PDF, una infografía u otro archivo, créalo de verdad con la herramienta "crear_archivo" (para PDF e imágenes, diseña una página HTML con buen CSS, sin JavaScript) y di dónde quedó.';
   if (opts.helper) sys += `\n\nEres ${recOf(p).name}, un Clawd ayudante que invocó ${opts.from || 'otro Clawd'} para UNA tarea. Hazla completa y entrega el resultado directo, sin hacer preguntas (nadie te va a contestar).`;
@@ -2338,6 +2355,8 @@ ipcMain.on('menu', (e, id) => {
     { label: `${rec.name || 'Clawd'}${info && info.title ? ' · ' + String(info.title).slice(0, 36) : p.sid ? '' : ' · sin sesión'}`, enabled: false },
     { label: 'Cambiar nombre…', click: () => { try { p.win.focus(); } catch (_) { /* nada */ } p.send('rename'); } },
     { label: 'Color', submenu: COLORS.map((c) => ({ label: c.label, type: 'radio', checked: (rec.color || 'naranja') === c.id, click: () => setLook(p, { color: c.id }) })) },
+    ...(canPin(p) ? [{ label: 'Fijar (no se va solo y tarda 5 min en dormirse)', type: 'checkbox', checked: !!rec.pinned, click: () => setPinned(p, !rec.pinned) }] : []),
+    ...(!p.helper ? [{ label: rec.role && (rec.role.title || rec.role.text) ? `Entrenamiento: ${rec.role.title || 'personalizado'}…` : 'Entrenar para una función…', click: () => openTrain(p) }] : []),
     { label: 'Restaurar apariencia', click: () => { const keepName = NAMES.find((n) => !livePets().some((q) => q !== p && recOf(q).name === n)) || 'Clawd'; setLook(p, { color: 'naranja', name: keepName }); } },
     { type: 'separator' },
   ];
@@ -2377,6 +2396,47 @@ ipcMain.on('menu', (e, id) => {
   );
   Menu.buildFromTemplate(items).popup({ window: p.win });
 });
+// ---------- entrenar a un Clawd: su función y sus instrucciones (ventanita aparte) ----------
+let trainWin = null;
+function openTrain(p) {
+  if (trainWin && !trainWin.isDestroyed()) trainWin.close();
+  const w = new BrowserWindow({
+    width: 520, height: 560, minWidth: 420, minHeight: 460, title: `Entrenar a ${recOf(p).name || 'Clawd'}`, icon: ICON,
+    backgroundColor: '#262624', autoHideMenuBar: true, minimizable: false, maximizable: false, alwaysOnTop: true, show: false,
+    webPreferences: { preload: path.join(__dirname, 'train-preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: false },
+  });
+  w.petId = p.id;
+  w.recKey = p.extra ? 'x:' + p.extra : p.sid || null;
+  trainWin = w;
+  w.once('ready-to-show', () => w.show());
+  w.loadFile(path.join(__dirname, 'train.html'));
+}
+function trainTarget(e) {
+  const w = BrowserWindow.fromWebContents(e.sender);
+  if (!w) return null;
+  const p = pets.get(w.petId);
+  const rec = w.recKey ? cfg.clawds[w.recKey] : p ? recOf(p) : null;
+  return rec ? { w, p: p && p.alive ? p : null, rec } : null;
+}
+ipcMain.handle('train:get', (e) => {
+  const t = trainTarget(e);
+  if (!t) return null;
+  const r = t.rec.role || {};
+  return { name: t.rec.name || 'Clawd', title: r.title || '', text: r.text || '', pinned: !!t.rec.pinned, canPin: !!t.w.recKey };
+});
+ipcMain.handle('train:save', (e, d) => {
+  const t = trainTarget(e);
+  if (!t) return;
+  const title = String((d && d.title) || '').slice(0, 40), text = String((d && d.text) || '').slice(0, 4000);
+  if (title || text) t.rec.role = { title, text }; else delete t.rec.role;
+  if (t.w.recKey) t.rec.pinned = !!(d && d.pinned);
+  saveCfg();
+  log(`${t.rec.name || 'Clawd'}: ${title || text ? `entrenado como "${title || 'personalizado'}"` : 'sin entrenamiento'}${t.rec.pinned ? ' (fijado)' : ''}`);
+  if (t.p) sendIdentity(t.p, true);
+  groupKey = '';
+  t.w.close();
+});
+ipcMain.on('train:close', (e) => { const w = BrowserWindow.fromWebContents(e.sender); if (w) w.close(); });
 // ---------- extensiones de un Clawd (clic derecho) ----------
 function extensionMenuItems(p) {
   const all = Object.keys(readExtensions());
@@ -2579,6 +2639,8 @@ app.whenReady().then(async () => {
         else if (what.startsWith('chat=')) { const [, sid, text] = what.split('='); const p = livePets().find((q) => (q.sid || 'anfitrion').startsWith(sid)); if (p) chatSend(p, text); }
         else if (what.startsWith('deleg=')) { const [, sid, models] = what.split('='); const p = livePets().find((q) => (q.sid || 'anfitrion').startsWith(sid)); delegate(p, models.split(',').map((m) => ({ tarea: 'Responde solo con la palabra listo', modelo: m }))).then((r) => log('prueba delegar: ' + r.map((x) => x.nombre + '=' + x.texto).join(' | '))).catch((e) => log('prueba delegar error: ' + e)); }
         else if (what.startsWith('burst=')) { const [, pre, n, ms] = what.split('='); let k = 0; const t = setInterval(() => { const w = sharedWin || anyWin(); if (++k > Number(n) || !w || w.isDestroyed()) { clearInterval(t); return; } const name = pre + String(k).padStart(3, '0'); w.webContents.capturePage().then((img) => fs.writeFileSync(path.join(path.dirname(LOG), name + '.png'), img.toPNG())).catch(() => {}); }, Number(ms)); }
+        else if (what === 'trainopen') { const p = livePets().find((q) => q.extra && !q.helper) || livePets()[0]; if (p) openTrain(p); }
+        else if (what.startsWith('tjs64=')) { if (trainWin && !trainWin.isDestroyed()) trainWin.webContents.executeJavaScript(Buffer.from(what.slice(6), 'base64').toString('utf8')).then((r) => log('tjs: ' + JSON.stringify(r))).catch((e) => log('tjs error: ' + e)); }
         else if (what === 'hbye') { for (const q of livePets()) if (q.helper) byePet(q, 'prueba'); }
         else if (what.startsWith('shot=')) { const w = sharedWin || anyWin(); if (w) w.webContents.capturePage().then((img) => fs.writeFileSync(path.join(path.dirname(LOG), what.slice(5) + '.png'), img.toPNG())).catch((e) => log('shot error: ' + e)); }
         else if (what === 'gshow') { if (sharedWin) sharedWin.webContents.executeJavaScript('groupShow()').catch(() => {}); }

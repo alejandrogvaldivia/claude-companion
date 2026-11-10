@@ -1206,8 +1206,8 @@ function applyIdentity(d) {
   if (!d) return;
   const wasLead = ident.lead;
   ident = Object.assign(ident, d);
-  tagName.textContent = ident.name;
-  tagModel.textContent = ident.model || '';
+  tagName.textContent = ident.name + (ident.pinned ? ' 📌' : '');           // fijado por ti
+  tagModel.textContent = [ident.role, ident.model].filter(Boolean).join(' · ');   // su función (si lo entrenaste) y su modelo
   root.classList.toggle('has-session', !!ident.session);   // solo los Clawds con sesión pueden mandarle cosas
   el.pet.style.setProperty('--s', String(ident.scale || 1));
   const f = [];
@@ -1658,7 +1658,7 @@ function renderGroup(force) {
         `<div class="gb" style="--ctint:${tintOf(p)}">${esc0(i.text)}</div></div></div>`;
     }
     const label = i.who === 'say' ? (p.model || '') : (p.chatModel || '');
-    const head = `<span class="gname">${esc0(p.name)}${label ? ` <i>· ${esc0(label)}</i>` : ''}${i.who === 'say' ? ' <i>· en su sesión</i>' : ''}</span>`;
+    const head = `<span class="gname">${esc0(p.name)}${p.pinned ? ' 📌' : ''}${p.role ? ` <i>· ${esc0(p.role)}</i>` : ''}${label ? ` <i>· ${esc0(label)}</i>` : ''}${i.who === 'say' ? ' <i>· en su sesión</i>' : ''}</span>`;
     let bub;
     if (i.who === 'say') bub = `<div class="gb" data-say="${i.id}">${esc0(i.text)}</div>`;
     else if (i.who === 'live') bub = `<div class="gb" style="--ctint:${tintOf(p)}">${i.text ? mdG(i.text) + '<span class="caret"></span>' : ''}${!i.text || i.tool ? `<div class="tool">${livePill(i.tool || 'Pensando…', i.t0)}</div>` : ''}</div>`;

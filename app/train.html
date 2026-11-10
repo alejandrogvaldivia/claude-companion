@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'">
+<title>Entrenar Clawd</title>
+<style>
+  :root { --orange: #d97757; --ink: #1f1e1d; --paper: #faf6f0; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #262624; color: #f3efe8; font: 14px 'Segoe UI', sans-serif; }
+  body { display: flex; flex-direction: column; gap: 12px; padding: 18px 20px 16px; }
+  h1 { margin: 0; font-size: 17px; font-weight: 700; }
+  p.sub { margin: -6px 0 2px; color: rgba(243, 239, 232, .62); font-size: 12.5px; line-height: 1.45; }
+  label { display: flex; flex-direction: column; gap: 5px; font-weight: 600; font-size: 12.5px; color: rgba(243, 239, 232, .85); }
+  input, textarea {
+    width: 100%; padding: 8px 10px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, .16);
+    background: #1f1e1d; color: #f3efe8; font: 13.5px 'Segoe UI', sans-serif; outline: 0;
+  }
+  input:focus, textarea:focus { border-color: var(--orange); }
+  textarea { flex: 1; min-height: 160px; resize: none; line-height: 1.45; }
+  .grow { flex: 1; display: flex; flex-direction: column; }
+  .grow label { flex: 1; }
+  .ex { color: rgba(243, 239, 232, .5); font-size: 12px; line-height: 1.4; }
+  .row { display: flex; gap: 8px; align-items: center; }
+  .row .sp { flex: 1; }
+  .pin { flex-direction: row; align-items: center; gap: 8px; font-weight: 400; cursor: pointer; }
+  .pin input { width: auto; accent-color: var(--orange); }
+  button { padding: 7px 14px; border-radius: 999px; border: 1px solid rgba(255, 255, 255, .18); background: transparent; color: #f3efe8; font: 600 13px 'Segoe UI', sans-serif; cursor: pointer; }
+  button:hover { border-color: rgba(255, 255, 255, .4); }
+  button.main { background: var(--orange); border-color: var(--orange); color: #fff; }
+  button.main:hover { filter: brightness(1.08); }
+  button.del { color: #f0a08a; }
+  button[hidden] { display: none; }
+</style>
+</head>
+<body>
+  <h1 id="title">Entrenar a Clawd</h1>
+  <p class="sub">Dale una función específica. Seguirá estas instrucciones cada vez que platiques con él (también se nota en su etiqueta y en el chat).</p>
+  <label>Su función
+    <input id="role" maxlength="40" placeholder="Ej.: Contador personal, Tutor de inglés, Revisor de código…">
+  </label>
+  <div class="grow">
+    <label>Instrucciones
+      <textarea id="text" maxlength="4000" placeholder="Qué hace, cómo debe responder, qué debe saber de ti…"></textarea>
+    </label>
+  </div>
+  <div class="ex">Ej.: "Llevas mis gastos del mes. Responde corto, en pesos mexicanos, y al final dame el total. Si te paso un ticket, anótalo en la nota Gastos de Obsidian."</div>
+  <label class="pin"><input type="checkbox" id="pinned"> Fijarlo (no se va solo y tarda 5 minutos en dormirse)</label>
+  <div class="row">
+    <button id="clear" class="del" hidden>Quitar entrenamiento</button>
+    <span class="sp"></span>
+    <button id="cancel">Cancelar</button>
+    <button id="save" class="main">Guardar</button>
+  </div>
+  <script src="train.js"></script>
+</body>
+</html>
