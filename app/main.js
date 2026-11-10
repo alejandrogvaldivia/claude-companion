@@ -666,9 +666,9 @@ function byePet(p, why) {
     }
   }
   log(`Clawd #${p.id} se despide${why ? ` (${why})` : ''}`);
-  p.send('bye');
+  p.send('bye', p.helper ? { poof: true } : null);          // los ayudantes se van como llegaron: en humo
   clearTimeout(p.byeTimer);
-  p.byeTimer = setTimeout(() => destroyPet(p), 3400);
+  p.byeTimer = setTimeout(() => destroyPet(p), p.helper ? 1400 : 3400);
   if (wasLead) for (const q of livePets()) sendIdentity(q, true);   // el chat pasa al siguiente
 }
 
@@ -2576,6 +2576,7 @@ app.whenReady().then(async () => {
         else if (what.startsWith('chat=')) { const [, sid, text] = what.split('='); const p = livePets().find((q) => (q.sid || 'anfitrion').startsWith(sid)); if (p) chatSend(p, text); }
         else if (what.startsWith('deleg=')) { const [, sid, models] = what.split('='); const p = livePets().find((q) => (q.sid || 'anfitrion').startsWith(sid)); delegate(p, models.split(',').map((m) => ({ tarea: 'Responde solo con la palabra listo', modelo: m }))).then((r) => log('prueba delegar: ' + r.map((x) => x.nombre + '=' + x.texto).join(' | '))).catch((e) => log('prueba delegar error: ' + e)); }
         else if (what.startsWith('burst=')) { const [, pre, n, ms] = what.split('='); let k = 0; const t = setInterval(() => { const w = sharedWin || anyWin(); if (++k > Number(n) || !w || w.isDestroyed()) { clearInterval(t); return; } const name = pre + String(k).padStart(3, '0'); w.webContents.capturePage().then((img) => fs.writeFileSync(path.join(path.dirname(LOG), name + '.png'), img.toPNG())).catch(() => {}); }, Number(ms)); }
+        else if (what === 'hbye') { for (const q of livePets()) if (q.helper) byePet(q, 'prueba'); }
         else if (what.startsWith('shot=')) { const w = sharedWin || anyWin(); if (w) w.webContents.capturePage().then((img) => fs.writeFileSync(path.join(path.dirname(LOG), what.slice(5) + '.png'), img.toPNG())).catch((e) => log('shot error: ' + e)); }
         else if (what === 'gshow') { if (sharedWin) sharedWin.webContents.executeJavaScript('groupShow()').catch(() => {}); }
         else if (what.startsWith('js64=')) { const w = sharedWin || anyWin(); const code = Buffer.from(what.slice(5), 'base64').toString('utf8'); if (w) w.webContents.executeJavaScript(code).then((r) => log('js: ' + JSON.stringify(r) + ' visible=' + w.isVisible() + ' bounds=' + JSON.stringify(w.getBounds()))).catch((e) => log('js error: ' + e)); }

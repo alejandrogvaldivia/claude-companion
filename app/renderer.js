@@ -499,11 +499,24 @@ function runEntrance(e) {
 let poofing = false;
 function poofIn() {
   poofing = true;                                    // su brillo aparece cuando él aparece
-  setTimeout(() => { poofing = false; }, 260);
   el.pet.classList.add('poof-hide');
-  smoke();
+  // espera a que ya esté en su lugar (y de su tamaño) para que la nube salga donde va
+  let tries = 0, last = null, same = 0;
+  const go = () => {
+    if (dead) return;
+    const r = el.pet.getBoundingClientRect();
+    const at = `${Math.round(r.left)},${Math.round(r.bottom)}`;
+    same = at === last ? same + 1 : 0;
+    last = at;
+    if (++tries < 40 && ((PAGE.shared && !root.style.top) || same < 3)) { requestAnimationFrame(go); return; }   // quieto 3 cuadros seguidos
+    smoke(); popLater();
+  };
+  requestAnimationFrame(go);
+}
+function popLater() {
   setTimeout(() => {
     if (dead) return;
+    poofing = false;
     el.pet.classList.remove('poof-hide');
     el.pet.classList.add('poof-pop');
     setTimeout(() => {
@@ -513,36 +526,105 @@ function poofIn() {
       visual = null;
       tick();
     }, 600);
-  }, 200);
+  }, 220);
 }
+// humo en pixel art, como Clawd: bloques del tamaño de sus pixeles (más grandes en Opus, más chicos en Haiku),
+// colores planos con orilla, cuadro por cuadro (como sus GIFs) y se deshace a pedacitos; chispitas de su color
 function smoke() {
-  const c = document.createElement('div');
-  c.className = 'poof';
-  c.style.setProperty('--ps', String(ident.scale || petScaleNow() || 1));
-  let h = '<b></b>';
-  const n = 12;
-  for (let i = 0; i < n; i++) {
-    const a = (i / n) * Math.PI * 2 + Math.random() * 0.45;
-    const d = 34 + Math.random() * 30;
-    const z = 30 + Math.random() * 28;
-    h += `<i style="--dx:${(Math.cos(a) * d * 1.2).toFixed(1)}px;--dy:${(Math.sin(a) * d * 0.6 - 10).toFixed(1)}px;--z:${z.toFixed(0)}px;--dl:${Math.round(Math.random() * 90)}ms"></i>`;
+  const s = ident.scale || petScaleNow() || 1;
+  const pw = el.pet.offsetWidth || 112, ph = el.pet.offsetHeight || 75;
+  const u = Math.max(2, Math.round(pw * s * 0.036));          // un "pixel" de Clawd
+  const C = 48, R = 34, cx = 24, cy = 22;                      // rejilla (en pixeles de Clawd) y su centro
+  const W = C * u, H = R * u;
+  const wrap = document.createElement('div');
+  wrap.className = 'poof';
+  Object.assign(wrap.style, { width: `${W}px`, height: `${H}px`, left: `${Math.round(pw * 0.486 - W / 2)}px`, bottom: `${Math.round(ph * 0.21 * s - (R - cy) * u)}px` });
+  const dpr = window.devicePixelRatio || 1;
+  const layer = (cls) => {
+    const c = document.createElement('canvas');
+    c.className = cls; c.width = Math.round(W * dpr); c.height = Math.round(H * dpr);
+    wrap.appendChild(c);
+    const x = c.getContext('2d'); x.setTransform(dpr, 0, 0, dpr, 0, 0); x.imageSmoothingEnabled = false;
+    return x;
+  };
+  const g = layer('smk'), k = layer('spk');
+  const puffs = [{ x: 0, y: -1, r: 4.6, dl: 0, core: true }];
+  const N = 8;
+  for (let i = 0; i < N; i++) {
+    const a = (i / N) * Math.PI * 2 + (Math.random() - 0.5) * 0.5;
+    const d = 6.5 + Math.random() * 3.5;
+    puffs.push({ x: Math.cos(a) * d * 1.3, y: Math.sin(a) * d * 0.55 - 2.5, r: 2.8 + Math.random() * 1.6, dl: Math.random() * 1.5 });
   }
-  for (let i = 0; i < 7; i++) {                      // chispitas de su color
-    const a = Math.random() * Math.PI * 2;
-    const d = 60 + Math.random() * 40;
-    h += `<s style="--dx:${(Math.cos(a) * d).toFixed(1)}px;--dy:${(Math.sin(a) * d * 0.7 - 25).toFixed(1)}px;--dl:${Math.round(60 + Math.random() * 160)}ms"></s>`;
-  }
-  c.innerHTML = h;
-  el.pet.appendChild(c);
-  setTimeout(() => c.remove(), 1600);
+  const sparks = Array.from({ length: 7 }, () => ({ a: Math.random() * Math.PI * 2, d: 11 + Math.random() * 6, dl: 1 + Math.floor(Math.random() * 3) }));
+  const hash = (i, j, n) => { let h = Math.imul(i, 374761393) ^ Math.imul(j, 668265263) ^ Math.imul(n + 1, 1442695041); h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; };
+  const COL = { edge: '#7d766d', shade: '#cfc8bd', lit: '#fbf8f3' };
+  const F = 14;
+  let f = 0;
+  const grid = new Uint8Array(C * R);
+  const frame = () => {
+    grid.fill(0);
+    const fade = Math.max(0, Math.min(1, (f - 6) / 7));          // se deshace a pedacitos al final
+    for (const p of puffs) {
+      const t = f - p.dl;
+      if (t < 0) continue;
+      const e = 1 - Math.pow(1 - Math.min(1, t / 4), 2);          // sale disparada y frena
+      const px = cx + p.x * e, py = cy + p.y * e - Math.max(0, t - 5) * 0.4;   // y luego sube tantito
+      const r = p.core ? p.r * (t < 2 ? 0.55 + t * 0.35 : Math.max(0, 1.25 - (t - 2) * 0.16))
+        : p.r * (0.45 + 0.55 * e) * (t > 8 ? Math.max(0, 1 - (t - 8) * 0.15) : 1);
+      if (r < 0.6) continue;
+      const i0 = Math.max(0, Math.floor(px - r - 1)), i1 = Math.min(C - 1, Math.ceil(px + r + 1));
+      const j0 = Math.max(0, Math.floor(py - r - 1)), j1 = Math.min(R - 1, Math.ceil(py + r + 1));
+      for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+        const dx = i + 0.5 - px, dy = j + 0.5 - py;
+        if (dx * dx + dy * dy > r * r) continue;
+        const n = j * C + i;
+        if (dx * 0.6 + dy > r * 0.35) { if (!grid[n]) grid[n] = 2; }   // abajo: sombra
+        else grid[n] = 1;                                              // arriba: luz
+      }
+    }
+    // la orilla se calcula con la nube entera; al deshacerse se caen bloquecitos de 2×2 (sin volverse "ruido")
+    g.clearRect(0, 0, W, H);
+    for (let j = 0; j < R; j++) for (let i = 0; i < C; i++) {
+      const v = grid[j * C + i];
+      if (!v) continue;
+      if (fade > 0 && hash(i >> 1, j >> 1, 7) < fade * 1.05) continue;
+      const empty = (a, b) => a < 0 || b < 0 || a >= C || b >= R || !grid[b * C + a];
+      g.fillStyle = empty(i - 1, j) || empty(i + 1, j) || empty(i, j - 1) || empty(i, j + 1) ? COL.edge : v === 2 ? COL.shade : COL.lit;
+      g.fillRect(i * u, j * u, u, u);
+    }
+    // chispitas de su color (cuadritos que salen volando y parpadean)
+    k.clearRect(0, 0, W, H);
+    k.fillStyle = '#d97757';
+    for (const sp of sparks) {
+      const t = f - sp.dl;
+      if (t < 0 || t > 8 || (t > 5 && t % 2)) continue;
+      const q = Math.min(1, t / 5);
+      const i = Math.round(cx + Math.cos(sp.a) * sp.d * q * 1.2), j = Math.round(cy - 2 + Math.sin(sp.a) * sp.d * q * 0.7 - t * 0.3);
+      k.fillRect(i * u, j * u, u, u);
+      if (t < 3) { k.fillRect((i - 1) * u, j * u, u, u); k.fillRect((i + 1) * u, j * u, u, u); k.fillRect(i * u, (j - 1) * u, u, u); k.fillRect(i * u, (j + 1) * u, u, u); }
+    }
+  };
+  el.pet.appendChild(wrap);
+  frame();
+  const tm = setInterval(() => {
+    if (++f >= F || dead) { clearInterval(tm); wrap.remove(); return; }
+    frame();
+  }, 80);
+}
+// ayudante que termina: desaparece en su nube de humo (sin despedirse con la manita)
+function poofOut() {
+  poofing = true;                                    // su brillo se va con él
+  smoke();
+  setTimeout(() => { if (!dead) el.pet.classList.add('poof-gone'); }, 170);
 }
 // al asomarse, si es más chico (Sonnet, Haiku) se encoge hacia la orilla de la que se asoma, para seguir pegado a ella
 function lurkFrom(side) {
   el.pet.classList.toggle('lurk-l', side === 'left');
   el.pet.classList.toggle('lurk-r', side === 'right');
 }
-api.on('bye', () => {
+api.on('bye', (d) => {
   leaving = true;
+  if (d && d.poof) { endEntrance(); stopWalk(); hideConvo(); oneShot = null; poofOut(); return; }
   endEntrance();
   stopWalk();
   // si venía entrando (medio fuera de la vista), primero se pone donde se vea
