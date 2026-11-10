@@ -1515,8 +1515,16 @@ function groupOnPet(id, ch, d) {
 function groupShow(id) {
   if (!PAGE.shared) return;
   clearTimeout(G.hideT);
-  if (id && document.activeElement !== gEl.input && !G.listOpen) { G.target = id; }
-  if (id && PAGE.mode === 'taskbar' && document.activeElement !== gEl.input && !G.listOpen) G.anchor = id;   // se abre sobre ese Clawd (si estás escribiendo, no se mueve)
+  const bar = PAGE.mode === 'taskbar';
+  // barra de tareas: el chat va con el Clawd al que le pasas el cursor (aunque estés escribiendo; lo escrito se queda)
+  if (id && !G.listOpen && (bar || document.activeElement !== gEl.input)) G.target = id;
+  if (id && bar && !G.listOpen && G.anchor !== id) {
+    if (gEl.box.classList.contains('show') && G.anchor) {   // ya estaba abierto sobre otro: se "teletransporta"
+      gEl.box.classList.remove('tp'); void gEl.box.offsetWidth; gEl.box.classList.add('tp');
+    }
+    G.anchor = id;
+    renderTo();
+  }
   anchorGroup();
   gEl.box.classList.add('show');
   updateHolds();
