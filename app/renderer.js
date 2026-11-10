@@ -1688,8 +1688,43 @@ function groupShow(id) {
 const gFloor = document.getElementById('gfloor');
 // dos Clawds juntos trabajando: sus globos no se enciman; el del Clawd más nuevo sube justo arriba del otro
 // (siempre el mismo orden, así no se brincan entre ellos) y baja solo cuando ya no estorba
+// su etiqueta con el nombre: si algo la tapa (el chat, los globos o la pastilla de otro), se recorre a un lado
+// para seguir viéndose; si no cabe en ningún lado, no aparece (en vez de quedar escondida debajo)
+const tagOn = (p) => p.root.classList.contains('tag-on') || p.root.classList.contains('renaming');
+const hit = (a, b, m = 3) => a.right > b.left - m && a.left < b.right + m && a.bottom > b.top - m && a.top < b.bottom + m;
+function untag() {
+  const grp = document.getElementById('group');
+  const covers = [];
+  if (grp && grp.classList.contains('show')) covers.push({ id: 0, r: grp.getBoundingClientRect() });
+  for (const [id, p] of PAGE.pets) for (const sel of ['#work', '#talk', '#ask']) {
+    const n = p.root.querySelector(sel);
+    if (!n || n.classList.contains('covered') || getComputedStyle(n).opacity < 0.1 || getComputedStyle(n).display === 'none') continue;
+    const r = n.getBoundingClientRect();
+    if (r.width && r.height) covers.push({ id, sel, r });
+  }
+  const placed = [];
+  for (const [id, p] of PAGE.pets) {
+    const t = p.root.querySelector('#tag');
+    if (!t) continue;
+    if (!tagOn(p)) { if (t._dx || t.classList.contains('tag-hid')) { t._dx = 0; t.style.translate = ''; t.style.removeProperty('--tdx'); t.classList.remove('tag-hid'); } continue; }
+    const r0 = t.getBoundingClientRect();
+    const base = { left: r0.left - (t._dx || 0), right: r0.right - (t._dx || 0), top: r0.top, bottom: r0.bottom };
+    const blockers = covers.filter((c) => !(c.id === id && c.sel === '#work')).map((c) => c.r).concat(placed);   // su pastilla se sube sola
+    let best = null;
+    for (const dx of [0, -14, 14, -28, 28, -44, 44, -60, 60, -80, 80]) {
+      const r = { left: base.left + dx, right: base.right + dx, top: base.top, bottom: base.bottom };
+      if (r.left < 2 || r.right > window.innerWidth - 2) continue;
+      if (!blockers.some((b) => hit(r, b))) { best = { dx, r }; break; }
+    }
+    const dx = best ? best.dx : 0;
+    if ((t._dx || 0) !== dx) { t._dx = dx; t.style.translate = dx ? `${dx}px 0` : ''; t.style.setProperty('--tdx', `${dx}px`); }
+    t.classList.toggle('tag-hid', !best);
+    if (best) placed.push(best.r);
+  }
+}
 function unstack() {
   if (!PAGE.shared) return;
+  untag();
   const items = [];
   for (const [id, p] of PAGE.pets) {
     const w = p.root && p.root.querySelector('#work');
@@ -1701,12 +1736,19 @@ function unstack() {
     const r = w.getBoundingClientRect();
     if (!r.width || !r.height) continue;
     const lift = w._lift || 0;                       // su lugar sin subir
-    items.push({ id, w, l: r.left, r: r.right, t: r.top + lift, b: r.bottom + lift });
+    // con su nombre a la vista, su pastilla se sube lo justo para no taparlo
+    let min = 0;
+    const tg = p.root.querySelector('#tag');
+    if (tg && tagOn(p) && !tg.classList.contains('tag-hid')) {
+      const tr = tg.getBoundingClientRect();
+      if (tr.right > r.left && tr.left < r.right && r.bottom + lift > tr.top - 3) min = Math.ceil(r.bottom + lift - tr.top + 3);
+    }
+    items.push({ id, w, min, l: r.left, r: r.right, t: r.top + lift, b: r.bottom + lift });
   }
   items.sort((x, y) => x.id - y.id);
   const placed = [];
   for (const it of items) {
-    let lift = 0;
+    let lift = it.min;
     for (let guard = 0; guard < 12; guard++) {
       const hit = placed.find((o) => it.r > o.l - 8 && it.l < o.r + 8 && it.b - lift > o.t - 6 && it.t - lift < o.b + 6);
       if (!hit) break;
