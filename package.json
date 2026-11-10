@@ -12,7 +12,8 @@
     "start": "electron .",
     "build:watcher": "node scripts/build-watcher.js",
     "dist": "node scripts/build-watcher.js && electron-builder --win nsis --publish never",
-    "release": "node scripts/release.js"
+    "release": "node scripts/release.js",
+    "local": "node scripts/install-local.js"
   },
   "dependencies": {
     "electron-updater": "6.3.9",
