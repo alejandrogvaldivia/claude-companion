@@ -31,12 +31,12 @@ const LOOP_MS = { waving: 1410, dancing: 3330, cloudOnce: 5160, lurking: 5580, r
 const ONCE_MS = { ...LOOP_MS };
 
 // Rato libre: animaciones al azar con ~5 s de pausa. En la barra de tareas también pasea.
+// lo que hace por su cuenta. Sin saludar con la manita ni asomarse: esas solo salen cuando de verdad
+// llega (se asoma desde la orilla) o se va (se despide), para que no se confunda con eso
 const IDLE_POOL = [
   { name: 'cloudOnce', w: 3 },
   { name: 'racing', w: 3 },
-  { name: 'waving', w: 2, ms: LOOP_MS.waving * 2 },
   { name: 'dancing', w: 2 },
-  { name: 'lurking', w: 1 },
 ];
 const IDLE_GAP_MS = [5000, 7000];
 let DEEP_SLEEP_MS = 1 * 60 * 1000;         // tras 1 min sin nada se queda dormido (configurable)
@@ -1277,11 +1277,11 @@ api.on('social', (d) => {
       clearTimeout(social.faceT);
       social.faceT = setTimeout(() => { if (!entrance.active) el.pet.classList.remove('mirror'); }, 9000);
       return;
-    case 'wave':
+    case 'wave':                                // se saludan entre ellos: dos brinquitos (la manita es solo para despedirse)
       if (busy) return;
       stopWalk();
-      if (visual === 'nap') { napWake(() => { visual = null; playOnce('waving', LOOP_MS.waving * (d.loops || 1), { idle: true }); }); return; }
-      afterLaptop(() => playOnce('waving', LOOP_MS.waving * (d.loops || 1), { idle: true }));
+      socialHop('hop', 600);
+      setTimeout(() => { if (!dead && !leaving) socialHop('hop', 600); }, 650);
       return;
     case 'cheer':
       if (busy) return;
