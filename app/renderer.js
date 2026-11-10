@@ -666,7 +666,7 @@ function placeCompact(vis) {
   if (!isBar()) { elWork.style.left = ''; elWork.style.right = ''; elWork.style.bottom = ''; return; }
   if (!vis) return;                      // escondido: se queda donde estaba (así, al volver, no brinca)
   const compact = elWork.classList.contains('compact');
-  const w = compact ? (el.status.offsetWidth || 160) : (elWork.offsetWidth || 420);
+  const w = elWork.offsetWidth || (compact ? 160 : 420);   // lo que muestra (pastilla y su lista)
   const rr = root.getBoundingClientRect(), pr = el.pet.getBoundingClientRect();
   const sc = petScaleNow();
   // dónde está de verdad su cuerpo: se encoge hacia su orilla al asomarse, hacia el centro el resto del tiempo
@@ -1540,6 +1540,38 @@ function groupShow(id) {
 }
 // barra de tareas: brillo del piso bajo el chat (mismo ancho y lugar que el chat, al ras de la barra)
 const gFloor = document.getElementById('gfloor');
+// dos Clawds juntos trabajando: sus globos no se enciman; el del Clawd más nuevo sube justo arriba del otro
+// (siempre el mismo orden, así no se brincan entre ellos) y baja solo cuando ya no estorba
+function unstack() {
+  if (!PAGE.shared) return;
+  const items = [];
+  for (const [id, p] of PAGE.pets) {
+    const w = p.root && p.root.querySelector('#work');
+    if (!w) continue;
+    if (!w.classList.contains('show') || w.classList.contains('covered')) {
+      if (w._lift) { w._lift = 0; w.style.translate = ''; }
+      continue;
+    }
+    const r = w.getBoundingClientRect();
+    if (!r.width || !r.height) continue;
+    const lift = w._lift || 0;                       // su lugar sin subir
+    items.push({ id, w, l: r.left, r: r.right, t: r.top + lift, b: r.bottom + lift });
+  }
+  items.sort((x, y) => x.id - y.id);
+  const placed = [];
+  for (const it of items) {
+    let lift = 0;
+    for (let guard = 0; guard < 12; guard++) {
+      const hit = placed.find((o) => it.r > o.l - 8 && it.l < o.r + 8 && it.b - lift > o.t - 6 && it.t - lift < o.b + 6);
+      if (!hit) break;
+      lift = it.b - (hit.t - 8);                     // justo arriba del que estorba
+    }
+    lift = Math.max(0, Math.round(lift));
+    placed.push({ l: it.l, r: it.r, t: it.t - lift, b: it.b - lift });
+    if ((it.w._lift || 0) !== lift) { it.w._lift = lift; it.w.style.translate = lift ? `0 ${-lift}px` : ''; }
+  }
+}
+setInterval(unstack, 100);
 // cada Clawd tiene su luz debajo, de su color; si están cerca, las luces se mezclan. Tamaño e intensidad
 // según su modelo (como el Clawd): un Haiku tiene una luz más chica y suave, así no se pierde en ella
 function placeGlows() {

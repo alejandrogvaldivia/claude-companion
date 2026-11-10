@@ -549,7 +549,7 @@ body.shared .clawd.mode-taskbar #strip:hover { background: none; }
 .spin3 i:nth-child(3) { left: 0; top: 6.2px; animation-delay: .8s; }
 
 /* trabajando sin que lo veas: solo la pastilla, siempre arriba de él */
-#work.compact #plan, #work.compact #says { display: none; }
+#work.compact #says { display: none; }   /* trabajando: su lista de tareas y la pastilla; lo que va diciendo, al pasar el cursor */
 #work.compact { width: auto; }
 .clawd.mode-taskbar #work.compact { align-items: flex-start; }
 .clawd.mode-taskbar #work.compact #status { max-width: 300px; }
@@ -582,7 +582,7 @@ body.shared .clawd.mode-taskbar #strip:hover { background: none; }
 #pet.lurk-l #body { transform-origin: 0% 100%; }   /* asomándose: pegado a su orilla aunque sea más chico */
 #pet.lurk-r #body { transform-origin: 100% 100%; }
 /* barra de tareas: los globos no suben ni bajan al aparecer (solo se desvanecen): siempre a la misma altura */
-.clawd.mode-taskbar #work, .clawd.mode-taskbar #work.show { transform: none; transition: opacity .3s ease; }
+.clawd.mode-taskbar #work, .clawd.mode-taskbar #work.show { transform: none; transition: opacity .3s ease, translate .25s ease; }
 #group.tp { animation: group-tp .22s ease-out; }   /* se teletransporta sobre otro Clawd */
 @keyframes group-tp { from { opacity: 0; } to { opacity: 1; } }
 
