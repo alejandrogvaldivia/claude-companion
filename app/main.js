@@ -197,7 +197,8 @@ function saveNow() {
     cfg.mode = mode;
     // olvida los Clawds de sesiones que no se ven hace más de 30 días
     const old = Date.now() - 30 * 86400000;
-    for (const [k, v] of Object.entries(cfg.clawds)) if (!v || (v.seen || 0) < old) delete cfg.clawds[k];
+    // (menos los que entrenaste o fijaste: esos no se olvidan)
+    for (const [k, v] of Object.entries(cfg.clawds)) if (!v || ((v.seen || 0) < old && !v.role && !v.pinned)) delete cfg.clawds[k];
     fs.writeFileSync(CFG, JSON.stringify({ v: 5, ...cfg }, null, 2));
   } catch (e) { log('config: ' + e); }
 }
@@ -1804,6 +1805,27 @@ ipcMain.on('file:open', (_e, f) => {
 
 // ---------- ayudantes: llegan, hacen su parte, la entregan y se van ----------
 const HELPER_MODELS = { haiku: 'claude-haiku-5-5', sonnet: 'claude-sonnet-5-5', opus: 'claude-opus-5-5' };
+// los Clawds que entrenaste para una función (sin contar ayudantes de paso)
+function trainedClawds() {
+  const out = [], seen = new Set();
+  for (const [key, rec] of Object.entries(cfg.clawds)) {
+    if (key.startsWith('x:h') || !rec || !rec.role || !(rec.role.title || rec.role.text) || !rec.name || seen.has(rec.name.toLowerCase())) continue;
+    seen.add(rec.name.toLowerCase());
+    out.push({ key, rec });
+  }
+  return out;
+}
+const findTrained = (name) => { const n = String(name || '').trim().toLowerCase(); return n ? trainedClawds().find((t) => t.rec.name.toLowerCase() === n) || null : null; };
+// el entrenado hace la tarea él mismo si está en pantalla y libre
+function runTrained(from, boss, t, tr, resolve) {
+  const p = livePets().find((q) => !q.helper && recOf(q) === tr.rec && !q.leaving && !(q.chat && q.chat.proc));
+  if (!p) return false;
+  log(`delegar: ${tr.rec.name} (entrenado, ya en pantalla) hace: ${String(t.tarea).slice(0, 80)}`);
+  const fam = familyOf(chatOf(p).model) || 'sonnet';
+  p.send('chat:external', { text: t.tarea, from: boss });
+  chatSend(p, String(t.tarea), { from: boss, helper: true, onDone: (r) => resolve({ nombre: tr.rec.name, modelo: fam, entrenado: true, texto: r.text, error: !!r.error, archivos: r.files || [] }) });
+  return true;
+}
 async function delegate(from, tareas) {
   tareas = tareas.filter((t) => t && String(t.tarea || '').trim()).slice(0, 4);
   if (!tareas.length) throw new Error('No hay tareas.');
@@ -1812,14 +1834,22 @@ async function delegate(from, tareas) {
   return Promise.all(tareas.map((t, i) => new Promise((resolve) => setTimeout(() => runHelper(from, boss, t, resolve), i * 700))));
 }
 function runHelper(from, boss, t, resolve) {
-  const fam = HELPER_MODELS[String(t.modelo || '').toLowerCase()] ? String(t.modelo).toLowerCase() : 'sonnet';
+  // ¿es para un Clawd que entrenaste? si está en pantalla lo hace él; si no, llega uno con su entrenamiento
+  const tr = findTrained(t.clawd);
+  if (tr && runTrained(from, boss, t, tr, resolve)) return;
+  const trFam = tr && tr.rec.chat && familyOf(tr.rec.chat.model);
+  const fam = HELPER_MODELS[String(t.modelo || '').toLowerCase()] ? String(t.modelo).toLowerCase() : trFam || 'sonnet';
   const p = new Pet(null);
   p.extra = 'h' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
   p.helper = true;
   p.helperOf = from || null;
   const rec = recOf(p);
   ensureIdentity(p);                               // nombre de Clawd (Chispa, Migas…), como los demás
-  if (from) { rec.color = recOf(from).color || 'naranja'; rec.autoColor = false; }   // del mismo color que quien lo llamó
+  if (tr) {                                        // con el nombre, el color y el entrenamiento del que entrenaste
+    rec.name = tr.rec.name; rec.color = tr.rec.color || 'naranja'; rec.autoColor = false;
+    rec.role = { title: tr.rec.role.title || '', text: tr.rec.role.text || '' };
+    if (Array.isArray(tr.rec.ext) && !(Array.isArray(t.extensiones) && t.extensiones.length)) t.extensiones = tr.rec.ext;
+  } else if (from) { rec.color = recOf(from).color || 'naranja'; rec.autoColor = false; }   // del mismo color que quien lo llamó
   // usa las extensiones que pidió (o las de quien lo invocó), si existen
   const all = readExtensions();
   const ext = (Array.isArray(t.extensiones) && t.extensiones.length ? t.extensiones : (from ? recOf(from).ext || [] : []))
@@ -1873,6 +1903,11 @@ function chatSend(p, text, opts) {
   if (opts.helper) sys += `\n\nEres ${recOf(p).name}, un Clawd ayudante que invocó ${opts.from || 'otro Clawd'} para UNA tarea. Hazla completa y entrega el resultado directo, sin hacer preguntas (nadie te va a contestar).`;
   else if (mcp && mcp.names.includes('companion') && opts.delegate) sys += '\n\nEl usuario marcó la casilla "Delegar" para este mensaje: reparte el trabajo entre Clawds ayudantes con la herramienta "delegar" (una tarea por cada cosa que pida, con el modelo adecuado para cada una; si es una sola cosa, dásela a un ayudante). Cuando terminen, dale la respuesta final.';
   else if (mcp && mcp.names.includes('companion')) sys += '\n\nTienes la herramienta "delegar" para repartir trabajo entre Clawds ayudantes, pero úsala SOLO si el usuario te lo pide explícitamente en este mensaje (por ejemplo "delega", "reparte", "invoca ayudantes" o "que lo hagan otros Clawds"). Aunque te pidan varias cosas o algo grande, si no te piden delegar, hazlo tú mismo.';
+  if (!opts.helper && mcp && mcp.names.includes('companion')) {
+    const tl = trainedClawds().filter((x) => x.rec !== recOf(p));
+    if (tl.length) sys += '\n\nClawds que el usuario entrenó para una función (si delegas y una tarea encaja con la función de uno, pon su nombre en "clawd" para que la haga él):\n' +
+      tl.map((x) => `- ${x.rec.name}${x.rec.role.title ? ` (${x.rec.role.title})` : ''}${x.rec.role.text ? `: ${x.rec.role.text.replace(/\s+/g, ' ').slice(0, 160)}` : ''}`).join('\n');
+  }
   const args = ['-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages',
     '--model', c.model, '--tools', TOOLS, '--allowedTools', allowed, '--permission-mode', 'default',
     '--append-system-prompt', sys];
@@ -2480,7 +2515,9 @@ function summonClawd() {
 }
 function dismissExtra(p, why) {
   cfg.extras = cfg.extras.filter((x) => x !== p.extra);
-  delete cfg.clawds['x:' + p.extra];
+  const rec = cfg.clawds['x:' + p.extra];
+  if (rec && rec.role && (rec.role.title || rec.role.text)) { rec.pinned = false; rec.away = true; }   // entrenado: se guarda su entrenamiento (puede volver al delegarle algo)
+  else delete cfg.clawds['x:' + p.extra];
   saveCfg();
   stopChat(p);
   byePet(p, why || 'lo despediste');
@@ -2637,7 +2674,7 @@ app.whenReady().then(async () => {
         else if (what === 'show') showAll();
         else if (what === 'summon') summonClawd();
         else if (what.startsWith('chat=')) { const [, sid, text] = what.split('='); const p = livePets().find((q) => (q.sid || 'anfitrion').startsWith(sid)); if (p) chatSend(p, text); }
-        else if (what.startsWith('deleg=')) { const [, sid, models] = what.split('='); const p = livePets().find((q) => (q.sid || 'anfitrion').startsWith(sid)); delegate(p, models.split(',').map((m) => ({ tarea: 'Responde solo con la palabra listo', modelo: m }))).then((r) => log('prueba delegar: ' + r.map((x) => x.nombre + '=' + x.texto).join(' | '))).catch((e) => log('prueba delegar error: ' + e)); }
+        else if (what.startsWith('deleg=')) { const [, sid, models] = what.split('='); const p = livePets().find((q) => (q.sid || 'anfitrion').startsWith(sid)); delegate(p, models.split(',').map((m) => (m[0] === '@' ? { tarea: 'Saluda y di en una frase qué haces', modelo: 'haiku', clawd: m.slice(1) } : { tarea: 'Responde solo con la palabra listo', modelo: m }))).then((r) => log('prueba delegar: ' + r.map((x) => x.nombre + '=' + x.texto).join(' | '))).catch((e) => log('prueba delegar error: ' + e)); }
         else if (what.startsWith('burst=')) { const [, pre, n, ms] = what.split('='); let k = 0; const t = setInterval(() => { const w = sharedWin || anyWin(); if (++k > Number(n) || !w || w.isDestroyed()) { clearInterval(t); return; } const name = pre + String(k).padStart(3, '0'); w.webContents.capturePage().then((img) => fs.writeFileSync(path.join(path.dirname(LOG), name + '.png'), img.toPNG())).catch(() => {}); }, Number(ms)); }
         else if (what === 'trainopen') { const p = livePets().find((q) => q.extra && !q.helper) || livePets()[0]; if (p) openTrain(p); }
         else if (what.startsWith('tjs64=')) { if (trainWin && !trainWin.isDestroyed()) trainWin.webContents.executeJavaScript(Buffer.from(what.slice(6), 'base64').toString('utf8')).then((r) => log('tjs: ' + JSON.stringify(r))).catch((e) => log('tjs error: ' + e)); }

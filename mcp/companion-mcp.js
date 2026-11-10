@@ -41,6 +41,7 @@ const TOOL = {
     'Cada ayudante puede leer archivos, buscar en la web, crear archivos nuevos (crear_archivo) y usar las extensiones que le pases; no puede volver a delegar. ' +
     'Si la tarea pide un archivo (PDF, nota, infografía…), dile al ayudante que lo cree él con crear_archivo. ' +
     'Escribe cada tarea completa y clara, con todo el contexto que necesite (el ayudante no ve esta plática). ' +
+    'Si el usuario tiene Clawds entrenados para una función y la tarea encaja con la de alguno, dásela a él (campo "clawd"). ' +
     'Devuelve el resultado de cada ayudante; después tú le das al usuario la respuesta final.',
   inputSchema: {
     type: 'object',
@@ -53,6 +54,7 @@ const TOOL = {
             tarea: { type: 'string', description: 'Lo que debe hacer el ayudante, completo y con contexto.' },
             modelo: { type: 'string', enum: ['haiku', 'sonnet', 'opus'], description: 'Modelo del ayudante.' },
             nombre: { type: 'string', description: 'Nombre corto para el ayudante (opcional).' },
+            clawd: { type: 'string', description: 'Nombre de un Clawd que el usuario entrenó para una función (te dicen cuáles hay). Si la tarea encaja con su función, ponlo aquí: la hace él, con su entrenamiento.' },
             extensiones: { type: 'array', items: { type: 'string' }, description: 'Extensiones que puede usar (por ejemplo "obsidian"), si las necesita.' },
           },
           required: ['tarea', 'modelo'],
