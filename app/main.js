@@ -828,6 +828,23 @@ function hace(ms) {
   if (min < 60) return `hace ${min} min`;
   return `hace ${Math.floor(min / 60)} h`;
 }
+// subagentes que lanzó Claude Code en esa sesión (los anota el hook, uno por archivo)
+function readAgents(sid, now) {
+  const dir = path.join(DIR_SES, sid + '.agents');
+  let files = [];
+  try { files = fs.readdirSync(dir).filter((f) => f.endsWith('.json')); } catch (_) { return []; }
+  const out = [];
+  for (const f of files) {
+    try {
+      const o = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'));
+      const age = now - Number(o.t0 || 0);
+      if (age > 6 * 3600000) { try { fs.unlinkSync(path.join(dir, f)); } catch (_) { /* nada */ } continue; }   // se quedó colgado
+      if (age > 3 * 3600000) continue;
+      out.push(o);
+    } catch (_) { /* a medio escribir */ }
+  }
+  return out.sort((a, b) => a.t0 - b.t0);
+}
 function readSessions() {
   const now = Date.now();
   const out = [];
@@ -840,6 +857,7 @@ function readSessions() {
       const age = now - Number(o.ts || 0);
       if (age > 86400000) { try { fs.unlinkSync(full); } catch (_) { /* nada */ } continue; }
       o.age = age; o.sid = f.replace(/\.json$/, '');
+      o.agents = readAgents(o.sid, now);
       out.push(o);
     } catch (_) { /* archivo a medio escribir */ }
   }
@@ -1125,6 +1143,7 @@ function reconcile(list) {
     ensureIdentity(p, s);
     createPetWindow(p, !OPTS.noIntro);
   }
+  syncCcAgents(list);
   // los que invocaste regresan (hasta que los despidas)
   for (const x of cfg.extras) {
     if ([...pets.values()].some((p) => p.extra === x && p.alive)) continue;
@@ -1143,6 +1162,7 @@ function statusFor(p, list) {
   if (OPTS.demo) return computeStatus(demoStatus(OPTS.demo), true);
   // sin sesión (invocado o el anfitrión): NO copia el estado de ninguna sesión. Solo trabaja cuando
   // le escribes tú (eso lo maneja su página) y en reposo se duerme como los demás.
+  if (p.cc) return computeStatus([{ state: 'working', age: 0, activity: p.cc.desc, title: `Subagente${p.cc.type ? ' · ' + p.cc.type : ''}` }], true);
   if (!p.sid) return { mode: 'sleep', key: '', hasInfo: false, showBubble: false, title: '', sub: '', dot: DOT.gray, extra: '' };
   const info = list.find((s) => s.sid === p.sid);
   if (!info) return { mode: 'sleep', key: '', hasInfo: false, showBubble: false, title: '', sub: '', dot: DOT.gray, extra: '' };
@@ -1213,7 +1233,7 @@ function sendGroup() {
     const c = chatOf(p);
     const d = p.sid ? deskSession(p.sid) : null;
     const last = c.history[c.history.length - 1];
-    const st = p.sid ? statusFor(p, lastList) : null;
+    const st = p.sid || p.cc ? statusFor(p, lastList) : null;
     return {
       // trabajando en su sesión: en el chat sale "escribiendo…" (los 3 puntitos)
       working: !!(st && (st.mode === 'working' || st.mode === 'thinking')), activity: st ? String(st.title || '').slice(0, 60) : '',
@@ -1816,6 +1836,37 @@ function trainedClawds() {
   return out;
 }
 const findTrained = (name) => { const n = String(name || '').trim().toLowerCase(); return n ? trainedClawds().find((t) => t.rec.name.toLowerCase() === n) || null : null; };
+// ---------- subagentes que lanza Claude Code por su cuenta: también salen como Clawds ayudantes ----------
+const CC_MAX = 6;                                 // no más de estos a la vez (un flujo grande lanza muchos)
+function syncCcAgents(list) {
+  const want = new Map();
+  for (const s of list) for (const a of s.agents || []) want.set(s.sid + ':' + a.key, { s, a });
+  // los que ya terminaron se van en su nube de humo
+  for (const p of livePets()) if (p.cc && !want.has(p.cc.k)) { byePet(p, 'terminó su subtarea'); const k = 'x:' + p.extra; setTimeout(() => { delete cfg.clawds[k]; saveCfg(); }, 4000); }
+  let n = livePets().filter((p) => p.cc).length;
+  for (const [k, { s, a }] of want) {
+    if ([...pets.values()].some((p) => p.cc && p.cc.k === k)) continue;
+    if (n >= CC_MAX) break;
+    const boss = livePets().find((q) => q.sid === s.sid) || null;
+    if (!boss && !sessionVisible(s)) continue;     // sesión que ni se ve: sin ayudantes sueltos
+    spawnCcAgent(boss, k, a);
+    n++;
+  }
+}
+function spawnCcAgent(boss, k, a) {
+  const p = new Pet(null);
+  p.extra = 'h' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+  p.helper = true;
+  p.helperOf = boss;
+  p.cc = { k, desc: a.desc || 'una subtarea', type: a.type || '' };
+  const rec = recOf(p);
+  ensureIdentity(p);
+  if (boss) { rec.color = recOf(boss).color || 'naranja'; rec.autoColor = false; }   // del color del Clawd de su sesión
+  const fam = familyOf(a.model) || (boss && familyOf(chatOf(boss).model)) || 'sonnet';
+  rec.chat = { lite: true, model: HELPER_MODELS[fam], pinned: true, history: [] };
+  createPetWindow(p, !OPTS.noIntro, { near: boss });
+  log(`subagente de Claude Code: ${rec.name} (${fam}${a.type ? ', ' + a.type : ''}) llega para: ${String(a.desc).slice(0, 80)}`);
+}
 // el entrenado hace la tarea él mismo si está en pantalla y libre
 function runTrained(from, boss, t, tr, resolve) {
   const p = livePets().find((q) => !q.helper && recOf(q) === tr.rec && !q.leaving && !(q.chat && q.chat.proc));

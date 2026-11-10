@@ -93,17 +93,72 @@ function save(target, obj) {
 }
 
 
+// ---------- subagentes que lanza Claude Code (herramienta Agent/Task): uno por archivo, para que la app
+// los muestre como Clawds ayudantes. Un archivo por agente (sin carreras entre hooks que corren a la vez).
+const safeKey = (k) => String(k || '').replace(/[^\w.-]/g, '_').slice(0, 80);
+function agentsDir(sid) { return path.join(DIR, sid + '.agents'); }
+function agentFiles(dir) {
+  try { return fs.readdirSync(dir).filter((f) => f.endsWith('.json')); } catch (_) { return []; }
+}
+function readJson(f) { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch (_) { return null; } }
+function agentLaunch(sid, d) {                         // PreToolUse de Agent/Task: llega uno
+  const i = d.tool_input || {};
+  const key = safeKey(d.tool_use_id) || 't' + TS + Math.random().toString(36).slice(2, 6);
+  const dir = agentsDir(sid);
+  fs.mkdirSync(dir, { recursive: true });
+  const o = { key, desc: clip(i.description || 'una subtarea', 60), type: String(i.subagent_type || ''), model: String(i.model || ''), bg: !!i.run_in_background, t0: TS };
+  fs.writeFileSync(path.join(dir, key + '.json'), JSON.stringify(o));
+}
+function agentClaim(sid, d) {                          // SubagentStart: a cuál de los que se lanzaron le toca este id
+  const id = safeKey(d.agent_id);
+  if (!id) return;
+  const dir = agentsDir(sid);
+  fs.mkdirSync(dir, { recursive: true });
+  const list = agentFiles(dir).map((f) => ({ f, o: readJson(path.join(dir, f)) })).filter((x) => x.o && !x.o.agent_id).sort((a, b) => a.o.t0 - b.o.t0);
+  for (const x of list) {
+    try { fs.closeSync(fs.openSync(path.join(dir, x.o.key + '.claim'), 'wx')); } catch (_) { continue; }   // ya lo tomó otro
+    x.o.agent_id = id;
+    fs.writeFileSync(path.join(dir, x.f), JSON.stringify(x.o));
+    return;
+  }
+  // no vimos cuando lo lanzaron: se anota igual
+  fs.writeFileSync(path.join(dir, 'a_' + id + '.json'), JSON.stringify({ key: 'a_' + id, agent_id: id, desc: clip(d.agent_type || 'una subtarea', 60), type: String(d.agent_type || ''), model: '', bg: true, t0: TS }));
+}
+function agentGone(sid, match) {
+  const dir = agentsDir(sid);
+  for (const f of agentFiles(dir)) {
+    const o = readJson(path.join(dir, f));
+    if (!o || !match(o)) continue;
+    try { fs.unlinkSync(path.join(dir, f)); } catch (_) { /* ya no estaba */ }
+    try { fs.unlinkSync(path.join(dir, o.key + '.claim')); } catch (_) { /* no había */ }
+  }
+}
+
 function main(d) {
   const ev = d.hook_event_name || '';
   const sid = String(d.session_id || 'sesion').replace(/[^\w.-]/g, '_').slice(0, 80);
   fs.mkdirSync(DIR, { recursive: true });
   const target = path.join(DIR, sid + '.json');
+  const tool = d.tool_name || '';
+  // subagentes: van aparte (no cambian lo que dice la sesión)
+  if (ev === 'SubagentStart') { agentClaim(sid, d); return; }
+  if (ev === 'SubagentStop') { const id = safeKey(d.agent_id); if (id) agentGone(sid, (o) => o.agent_id === id); return; }
+  if ((tool === 'Agent' || tool === 'Task') && ev === 'PreToolUse') { try { agentLaunch(sid, d); } catch (_) { /* nada */ } }
+  if ((tool === 'Agent' || tool === 'Task') && (ev === 'PostToolUse' || ev === 'PostToolUseFailure')) {
+    const k = safeKey(d.tool_use_id);
+    // el que corre en primer plano ya terminó; el de segundo plano sigue hasta su SubagentStop
+    if (k) agentGone(sid, (o) => o.key === k && (!o.bg || ev === 'PostToolUseFailure'));
+  }
 
   let cur = {};
   try { cur = JSON.parse(fs.readFileSync(target, 'utf8')); } catch (_) { /* sesión nueva */ }
   if (cur.ts && cur.ts > TS) return; // ya llegó un evento más nuevo
 
-  if (ev === 'SessionEnd') { try { fs.unlinkSync(target); } catch (_) { /* ignorar */ } return; }
+  if (ev === 'SessionEnd') {
+    try { fs.unlinkSync(target); } catch (_) { /* ignorar */ }
+    try { fs.rmSync(agentsDir(sid), { recursive: true, force: true }); } catch (_) { /* ignorar */ }
+    return;
+  }
 
   const s = Object.assign({}, cur, { ts: TS });
   if (d.cwd) s.cwd = d.cwd;

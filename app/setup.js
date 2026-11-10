@@ -104,7 +104,7 @@ async function ensureAssets({ net, BrowserWindow, log }) {
 // ---------------------------------------------------------------------
 //  2. Hooks de Claude Code
 // ---------------------------------------------------------------------
-const HOOK_EVENTS = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PermissionRequest', 'Notification', 'Stop', 'StopFailure', 'SessionEnd'];
+const HOOK_EVENTS = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PermissionRequest', 'Notification', 'Stop', 'StopFailure', 'SessionEnd', 'SubagentStart', 'SubagentStop'];
 const WITH_MATCHER = new Set(['PreToolUse', 'PostToolUse', 'PermissionRequest']);
 const HOOK_FILE = path.join(BASE, 'hook.js');
 const fwd = (p) => p.replace(/\\/g, '/');
