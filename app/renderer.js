@@ -694,6 +694,11 @@ function followLoop() {
   followRaf = requestAnimationFrame(followLoop);
 }
 function startFollow() { if (!followRaf && isBar()) followRaf = requestAnimationFrame(followLoop); }
+function flashStatus(ms) {
+  statusFlashUntil = Date.now() + ms;
+  clearTimeout(statusFlashT);
+  statusFlashT = setTimeout(renderStatus, ms + 30);
+}
 const elWork = $('work'), elPlan = $('plan'), elSays = $('says'), elTime = $('time');
 let planKey = '', saysKey = '', lastSayId = null, sayOpen = null;
 function renderPlan() {
