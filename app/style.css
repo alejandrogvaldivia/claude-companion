@@ -333,7 +333,7 @@ body.shared .clawd #ask, body.shared .clawd #talk, body.shared .clawd #says { di
 
 /* ---------- ícono de "nueva conversación": Clawd con un + ---------- */
 .clawd-new {
-  background: transparent url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 12' shape-rendering='crispEdges'%3E%3Cg fill='white'%3E%3Crect x='2' y='1' width='8' height='6'/%3E%3Crect x='0' y='3' width='2' height='2'/%3E%3Crect x='10' y='3' width='2' height='2'/%3E%3Crect x='2' y='7' width='1' height='2'/%3E%3Crect x='4' y='7' width='1' height='2'/%3E%3Crect x='7' y='7' width='1' height='2'/%3E%3C/g%3E%3Cg fill='%231f1e1d'%3E%3Crect x='3' y='2' width='1' height='1'/%3E%3Crect x='8' y='2' width='1' height='1'/%3E%3C/g%3E%3Crect x='9.5' y='5.5' width='6.5' height='6.5' rx='3.25' fill='%23d97757' stroke='%231f1e1d' stroke-width='.6'/%3E%3Cg fill='white'%3E%3Crect x='12.25' y='6.9' width='1' height='3.7'/%3E%3Crect x='10.9' y='8.25' width='3.7' height='1'/%3E%3C/g%3E%3C/svg%3E") center / 20px 15px no-repeat;
+  background: transparent url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 18 13' shape-rendering='crispEdges'%3E%3Cg fill='white'%3E%3Crect x='2' y='1' width='8' height='6'/%3E%3Crect x='0' y='3' width='2' height='2'/%3E%3Crect x='10' y='3' width='2' height='2'/%3E%3Crect x='2' y='7' width='1' height='2'/%3E%3Crect x='4' y='7' width='1' height='2'/%3E%3Crect x='7' y='7' width='1' height='2'/%3E%3C/g%3E%3Cg fill='%231f1e1d'%3E%3Crect x='3' y='2' width='1' height='1'/%3E%3Crect x='8' y='2' width='1' height='1'/%3E%3C/g%3E%3Crect x='8.5' y='3.5' width='9' height='9' rx='4.5' fill='%23d97757' stroke='%231f1e1d' stroke-width='.7'/%3E%3Cg fill='white'%3E%3Crect x='12.3' y='5.2' width='1.4' height='5.6'/%3E%3Crect x='10.2' y='7.3' width='5.6' height='1.4'/%3E%3C/g%3E%3C/svg%3E") center / 24px 17px no-repeat;
   image-rendering: pixelated;
 }
 .clawd-new:hover { background-color: rgba(255, 255, 255, .18); }
@@ -585,3 +585,11 @@ body.shared .clawd.mode-taskbar #strip:hover { background: none; }
 .clawd.mode-taskbar #work, .clawd.mode-taskbar #work.show { transform: none; transition: opacity .3s ease; }
 #group.tp { animation: group-tp .22s ease-out; }   /* se teletransporta sobre otro Clawd */
 @keyframes group-tp { from { opacity: 0; } to { opacity: 1; } }
+
+/* "Delegar" chiquito: solo la casilla; al pasar el cursor (o si está marcada) sale la palabra */
+.chip.deleg { gap: 0; padding: 0 7px; }
+.deleg .dl {
+  display: inline-block; overflow: hidden; white-space: nowrap; max-width: 0; opacity: 0; margin-left: 0;
+  transition: max-width .3s cubic-bezier(.3, 1.15, .5, 1), opacity .2s ease, margin-left .3s ease;
+}
+.deleg:hover .dl, .deleg.on .dl, .deleg:focus-visible .dl { max-width: 70px; opacity: 1; margin-left: 5px; }
