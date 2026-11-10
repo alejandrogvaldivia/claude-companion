@@ -1547,7 +1547,7 @@ function placeGlows() {
     g.style.width = `${w}px`;
     const full = gFloor.classList.contains('full');                       // con el chat abierto: brillo completo
     g.style.height = `${Math.round(full ? 40 + 44 * s : 26 + 24 * s)}px`; // si no, uno más bajo y suave
-    g.style.opacity = ((0.2 + 0.8 * s) * (full ? 1 : 0.85)).toFixed(2);   // Opus 1 · Sonnet .8 · Haiku .6
+    g.style.opacity = ((0.2 + 0.8 * s) * (full ? 1 : 0.4)).toFixed(2);    // Opus 1 · Sonnet .8 · Haiku .6
     const st = p.glow ? p.glow() : 'idle';
     if (g.dataset.state !== st) g.dataset.state = st;                     // ocupado: pulsa · dormido: respira
     g.style.setProperty('--ctint', tintOf(petInfo(id)));
