@@ -650,8 +650,10 @@ function statusVisible() {
 }
 // barra de tareas: lo de arriba (la pastilla o todo el panel) va centrado sobre el Clawd y lo sigue al caminar;
 // solo se recorre cuando centrado se saldría de la pantalla
-function placeCompact() {
-  if (!isBar() || !elWork.classList.contains('show')) { elWork.style.left = ''; elWork.style.right = ''; elWork.style.bottom = ''; return; }
+function placeCompact(vis) {
+  if (vis === undefined) vis = elWork.classList.contains('show');
+  if (!isBar()) { elWork.style.left = ''; elWork.style.right = ''; elWork.style.bottom = ''; return; }
+  if (!vis) return;                      // escondido: se queda donde estaba (así, al volver, no brinca)
   const compact = elWork.classList.contains('compact');
   const w = compact ? (el.status.offsetWidth || 160) : (elWork.offsetWidth || 420);
   const rootLeft = root.getBoundingClientRect().left;          // dónde está su franja dentro de la ventana
@@ -712,9 +714,14 @@ function renderStatus() {
   renderPlan();
   renderSays();
   const vis = statusVisible();
+  const compact = vis && !statusFull();
+  // al aparecer o al cambiar entre pastilla y panel completo: se acomoda de golpe (sin deslizarse) en su lugar
+  const jump = (vis && !elWork.classList.contains('show')) || compact !== elWork.classList.contains('compact');
+  if (jump) elWork.classList.add('placing');
+  elWork.classList.toggle('compact', compact);
+  placeCompact(vis);
+  if (jump) { void elWork.offsetWidth; requestAnimationFrame(() => requestAnimationFrame(() => elWork.classList.remove('placing'))); }
   elWork.classList.toggle('show', vis);
-  elWork.classList.toggle('compact', vis && !statusFull());
-  placeCompact();
 }
 elPlan.addEventListener('click', () => api.openSession());
 api.on('status', (s) => {
