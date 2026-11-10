@@ -1363,6 +1363,7 @@ api0.init().then((o) => {
   PAGE.shared = !!o.shared;
   PAGE.mode = o.mode;
   document.body.classList.toggle('shared', PAGE.shared);
+  document.body.classList.toggle('bar-follow', PAGE.mode === 'taskbar');   // el chat sube y baja suave con la barra
   for (const id of o.ids || []) addClawd(id);
   syncFloor();
 });

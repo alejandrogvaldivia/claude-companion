@@ -237,12 +237,16 @@ function desktopValid(d) {
 }
 // barra de tareas: las ventanas se paran justo encima de la barra (abajo de la pantalla principal)
 // con algo en pantalla completa o la barra en "ocultar automáticamente", bajan hasta la orilla de la pantalla
-let fsOn = false, ahOn = false;
+// si la barra se oculta sola, se paran sobre ella cuando sube (tbShown: cuánto asoma, en px de pantalla)
+let fsOn = false, ahOn = false, tbShown = 0;
 const floorLow = () => fsOn || ahOn;
+const AH_ROOM = 120;                      // espacio extra arriba de la ventana para subir con la barra
 function taskbarGeom() {
   const d = screen.getPrimaryDisplay();
   const wa = d.workArea, b = d.bounds;
-  return { top: floorLow() ? b.y + b.height : wa.y + wa.height, minX: b.x, maxX: b.x + b.width - dims().w, b };
+  const bottom = b.y + b.height;
+  const top = fsOn ? bottom : ahOn ? bottom - tbShown : wa.y + wa.height;
+  return { top, winBottom: floorLow() ? bottom : wa.y + wa.height, minX: b.x, maxX: b.x + b.width - dims().w, b };
 }
 // grupo: un área donde conviven (sus pies se mueven dentro), anclada abajo a la derecha
 const GROUP_W = 600, GROUP_H = 230;
@@ -360,7 +364,7 @@ function posOf(p) { return p.shared ? p.pos : p.win.getPosition(); }
 let sharedWin = null, sharedReady = false, sharedRect = null;
 const isShared = () => !SHOT && (mode === 'group' || isBar());
 function sharedBounds() {
-  if (isBar()) { const g = taskbarGeom(); const h = dims().h; return { x: g.b.x, y: g.top - h, width: g.b.width, height: h }; }
+  if (isBar()) { const g = taskbarGeom(); const h = dims().h + (ahOn ? zr(AH_ROOM) : 0); return { x: g.b.x, y: g.winBottom - h, width: g.b.width, height: h }; }
   const a = groupArea();
   const wa = screen.getDisplayNearestPoint({ x: Math.round(a.ax - 20), y: Math.round(a.ay - 20) }).workArea;
   return { x: wa.x, y: wa.y, width: wa.width, height: wa.height };
@@ -1138,7 +1142,7 @@ let dumpN = 0;
 let groupDirty = true, groupKey = '';
 function groupPos() {
   const z = Z();
-  if (isBar()) return { right: 10, bottom: 52 };
+  if (isBar()) { const g = taskbarGeom(); return { right: 10, bottom: 52 + Math.round((g.winBottom - g.top) / z) }; }   // sube con la barra
   const a = groupArea();
   return { right: Math.max(4, Math.round((sharedRect.x + sharedRect.width - a.x1) / z)), bottom: Math.round((sharedRect.y + sharedRect.height - a.y0) / z) + 150 };
 }
@@ -2403,8 +2407,15 @@ function startWatcher() {
       if (line === '0' || line === '1') onClaude(line === '1');
       else if (/^[FA][01]$/.test(line)) {
         const was = floorLow();
-        if (line[0] === 'F') fsOn = line[1] === '1'; else ahOn = line[1] === '1';
-        if (floorLow() !== was) { log(`piso: ${floorLow() ? 'hasta abajo (pantalla completa o barra oculta)' : 'sobre la barra de tareas'}`); reflowScreen(); }
+        const wasAh = ahOn;
+        if (line[0] === 'F') fsOn = line[1] === '1'; else { ahOn = line[1] === '1'; if (!ahOn) tbShown = 0; }
+        if (floorLow() !== was || ahOn !== wasAh) { log(`piso: ${floorLow() ? 'hasta abajo (pantalla completa o barra oculta)' : 'sobre la barra de tareas'}`); reflowScreen(); }
+      } else if (/^T\d+\/\d+$/.test(line)) {
+        // la barra que se oculta sola sube o baja: se paran sobre ella
+        const [n, mH] = line.slice(1).split('/').map(Number);
+        const b = screen.getPrimaryDisplay().bounds;
+        const px = mH > 0 ? Math.round(n * b.height / mH) : 0;
+        if (px !== tbShown) { tbShown = px; if (ahOn && !fsOn) followTaskbar(); }
       }
     }
   });
@@ -2529,6 +2540,17 @@ app.whenReady().then(async () => {
   }
   screen.on('display-metrics-changed', reflowScreen);
 });
+// la barra que se oculta sola subió o bajó: los Clawds (y el chat) suben o bajan con ella
+function followTaskbar() {
+  if (!isBar()) return;
+  const g = taskbarGeom();
+  for (const p of livePets()) {
+    if (p.move && !p.social) stopMove(p, true);
+    const [x] = posOf(p);
+    moveWin(p, clamp(x, g.minX, g.maxX), g.top - dims().h);
+  }
+  groupKey = '';
+}
 // cambió la pantalla (o el piso): se reacomodan
 function reflowScreen() {
   if (isShared()) layoutShared();

@@ -326,7 +326,7 @@ html, body {
 .clawd { position: absolute; left: 0; top: 0; width: 520px; height: 480px; pointer-events: none; }
 .clawd.mode-taskbar { width: 430px; }
 .clawd #talk, .clawd #strip { pointer-events: auto; }
-body.shared .clawd { transition: left 45ms linear, top 45ms linear; }   /* sin transform/will-change: no crea capa propia */
+body.shared .clawd { transition: left 45ms linear, top .14s ease-out; }   /* sin transform/will-change: no crea capa propia */
 body.shared .clawd.leaving { transition: none; }
 /* en la ventana compartida la plática va en el chat grupal, no encima de cada uno */
 body.shared .clawd #ask, body.shared .clawd #talk, body.shared .clawd #says { display: none !important; }
@@ -601,3 +601,4 @@ body.shared .clawd.mode-taskbar #strip:hover { background: none; }
   transition: max-width .3s cubic-bezier(.3, 1.15, .5, 1), opacity .2s ease, margin-right .3s ease;
 }
 .clawd-new:hover .nl, .clawd-new:focus-visible .nl { max-width: 110px; opacity: 1; margin-right: 11px; }
+body.shared.bar-follow #group { transition: opacity .35s ease, transform .35s ease, bottom .14s ease-out; }
