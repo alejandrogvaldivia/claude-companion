@@ -471,6 +471,7 @@ function runEntrance(e) {
   el.pet.classList.remove('bob');
   el.pet.classList.add('entering');
   setFx('', '');
+  if (e.mode === 'poof') { poofIn(); return; }
   if (e.mode === 'desktop' || e.mode === 'walk') {
     // se asoma desde la orilla más cercana a donde estaba y luego camina hasta su lugar
     el.pet.classList.toggle('mirror', e.from === 'right');
@@ -493,6 +494,47 @@ function runEntrance(e) {
       walkTo(tx, 55, () => { endEntrance(); idleNextAt = Date.now() + IDLE_GAP_MS[0]; });
     },
   });
+}
+// ayudante: aparece como mago, en una explosión de humo (del tamaño de su modelo) y sale de golpe
+let poofing = false;
+function poofIn() {
+  poofing = true;                                    // su brillo aparece cuando él aparece
+  setTimeout(() => { poofing = false; }, 260);
+  el.pet.classList.add('poof-hide');
+  smoke();
+  setTimeout(() => {
+    if (dead) return;
+    el.pet.classList.remove('poof-hide');
+    el.pet.classList.add('poof-pop');
+    setTimeout(() => {
+      el.pet.classList.remove('poof-pop');
+      endEntrance();
+      idleNextAt = Date.now() + IDLE_GAP_MS[0];
+      visual = null;
+      tick();
+    }, 600);
+  }, 200);
+}
+function smoke() {
+  const c = document.createElement('div');
+  c.className = 'poof';
+  c.style.setProperty('--ps', String(ident.scale || petScaleNow() || 1));
+  let h = '<b></b>';
+  const n = 12;
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2 + Math.random() * 0.45;
+    const d = 34 + Math.random() * 30;
+    const z = 30 + Math.random() * 28;
+    h += `<i style="--dx:${(Math.cos(a) * d * 1.2).toFixed(1)}px;--dy:${(Math.sin(a) * d * 0.6 - 10).toFixed(1)}px;--z:${z.toFixed(0)}px;--dl:${Math.round(Math.random() * 90)}ms"></i>`;
+  }
+  for (let i = 0; i < 7; i++) {                      // chispitas de su color
+    const a = Math.random() * Math.PI * 2;
+    const d = 60 + Math.random() * 40;
+    h += `<s style="--dx:${(Math.cos(a) * d).toFixed(1)}px;--dy:${(Math.sin(a) * d * 0.7 - 25).toFixed(1)}px;--dl:${Math.round(60 + Math.random() * 160)}ms"></s>`;
+  }
+  c.innerHTML = h;
+  el.pet.appendChild(c);
+  setTimeout(() => c.remove(), 1600);
 }
 // al asomarse, si es más chico (Sonnet, Haiku) se encoge hacia la orilla de la que se asoma, para seguir pegado a ella
 function lurkFrom(side) {
@@ -723,7 +765,7 @@ function renderSays() {
     const b = document.createElement('div');
     b.className = 'say hit' + (latest ? '' : ' old');
     b.textContent = s.text;
-    b.addEventListener('mouseenter', () => { sayOpen = b; b.classList.add('open'); elWork.classList.add('reading'); });
+    b.addEventListener('mouseenter', () => { sayOpen = b; b.classList.add('open'); elWork.classList.add('reading'); revealOpened(b); });
     b.addEventListener('mouseleave', () => { sayOpen = null; b.classList.remove('open'); b.scrollTop = 0; elWork.classList.remove('reading'); renderSays(); });
     b.addEventListener('click', () => api.openSession());
     w.appendChild(b);
@@ -817,7 +859,8 @@ function scheduleHide() {
   const delay = Math.max(700, talkVisible ? readUntil - Date.now() : 0);
   hideT = setTimeout(() => { if (!busy()) hideConvo(); }, delay);
 }
-for (const n of [el.pet, el.ask, $('work')]) {
+// solo el Clawd (y la barrita, ya abierta) abren el chat: sus globos y su lista se leen sin que estorbe
+for (const n of [el.pet, el.ask]) {
   n.addEventListener('mouseenter', () => { hovering = true; showConvo(); });
   n.addEventListener('mouseleave', () => { hovering = false; scheduleHide(); });
 }
@@ -835,8 +878,10 @@ el.strip.addEventListener('mouseenter', () => {
   stripT = setTimeout(() => { hovering = true; showConvo(); }, BAR_HOVER_MS);
 });
 el.strip.addEventListener('mouseleave', () => { clearTimeout(stripT); hovering = false; scheduleHide(); });
-el.talk.addEventListener('mouseenter', () => { talkHover = true; showConvo(); });
-el.talk.addEventListener('mouseleave', () => { talkHover = false; scheduleHide(); });
+for (const n of [el.talk, $('work')]) {
+  n.addEventListener('mouseenter', () => { talkHover = true; clearTimeout(hideT); });   // se queda quieto para leer, sin abrir el chat
+  n.addEventListener('mouseleave', () => { talkHover = false; scheduleHide(); });
+}
 el.input.addEventListener('blur', () => setTimeout(scheduleHide, 50));
 window.addEventListener('blur', () => setTimeout(scheduleHide, 50));
 
@@ -1232,7 +1277,7 @@ function destroy() {
   root.remove();
 }
 // su luz: ocupado (trabajando o contestándote) pulsa, dormido respira, si no, quieta
-const glow = () => (busyNow() || chatBusy ? 'busy' : visual === 'nap' ? 'sleep' : 'idle');
+const glow = () => (poofing ? 'hidden' : busyNow() || chatBusy ? 'busy' : visual === 'nap' ? 'sleep' : 'idle');
 return { root, emit: api._emit, destroy, socialOk, glow, stripIn: () => stripIn, hovering: () => hovering || talkHover };
 } // fin de createClawd
 
@@ -1246,6 +1291,19 @@ const PAGE = { shared: false, mode: 'desktop', pets: new Map() };
 const esc0 = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 // degradado donde se corta lo que se puede scrollear: arriba si hay más arriba, abajo si hay más abajo
 const FADE_SEL = '#thread, #gfeed, .say.open, .gmsg.gsay .gb.open';
+// al abrirse completo un mensaje abreviado, la plática baja sola lo necesario para que se vea entero
+// (sin pasarse de su orilla de arriba, y sin que se salga de debajo del cursor)
+function revealOpened(b) {
+  requestAnimationFrame(() => {
+    if (!b.isConnected || !b.classList.contains('open')) return;
+    let sc = b.parentElement;
+    while (sc && sc !== document.body && !(sc.scrollHeight > sc.clientHeight + 1 && /auto|scroll/.test(getComputedStyle(sc).overflowY))) sc = sc.parentElement;
+    if (!sc || sc === document.body) return;
+    const r = b.getBoundingClientRect(), f = sc.getBoundingClientRect();
+    const over = Math.min(r.bottom + 10 - f.bottom, r.top - f.top - 4);
+    if (over > 0) sc.scrollBy({ top: over, behavior: 'smooth' });
+  });
+}
 function fadeEdges(n) {
   const top = n.scrollTop > 2, bot = n.scrollHeight - n.scrollTop - n.clientHeight > 2;
   if (n.classList.contains('fade-top') !== top) n.classList.toggle('fade-top', top);
@@ -1500,7 +1558,7 @@ function renderGroup(force) {
 }
 gEl.feed.addEventListener('mouseover', (e) => {
   const b = e.target.closest('.gmsg.gsay .gb');
-  if (b && G.openSay !== b) { if (G.openSay) G.openSay.classList.remove('open'); G.openSay = b; b.classList.add('open'); }
+  if (b && G.openSay !== b) { if (G.openSay) G.openSay.classList.remove('open'); G.openSay = b; b.classList.add('open'); revealOpened(b); }
 });
 gEl.feed.addEventListener('mouseout', (e) => {
   const b = e.target.closest('.gmsg.gsay .gb');
@@ -1604,7 +1662,7 @@ function placeGlows() {
     g.style.opacity = ((0.2 + 0.8 * s) * (full ? 1 : 0.4)).toFixed(2);    // Opus 1 · Sonnet .8 · Haiku .6
     const st = p.glow ? p.glow() : 'idle';
     if (g.dataset.state !== st) g.dataset.state = st;                     // ocupado: pulsa · dormido: respira
-    g.style.setProperty('--ctint', tintOf(petInfo(id)));
+    g.style.setProperty('--ctint', p.root.style.getPropertyValue('--ctint') || tintOf(petInfo(id)));   // su color propio, desde que llega
   }
   gFloor.querySelectorAll('.glow').forEach((g) => { if (!seen.has(g.dataset.id)) g.remove(); });
 }

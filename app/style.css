@@ -143,6 +143,7 @@ html, body {
 }
 #plan .done span { color: rgba(255, 255, 255, .5); }
 #plan .doing span { color: #fff; font-weight: 600; }
+#plan .doing .ic, #plan .done .ic { filter: var(--ctint, none); }   /* la lista, del color de su Clawd */
 #plan .more span { font-style: italic; }
 @keyframes turn { to { transform: rotate(360deg); } }
 
@@ -602,3 +603,39 @@ body.shared .clawd.mode-taskbar #strip:hover { background: none; }
 }
 .clawd-new:hover .nl, .clawd-new:focus-visible .nl { max-width: 110px; opacity: 1; margin-right: 11px; }
 body.shared.bar-follow #group { transition: opacity .35s ease, transform .35s ease, bottom .14s ease-out; }
+
+/* ---------- ayudantes: aparecen como magos, en una explosión de humo ---------- */
+#gfloor .glow[data-state="hidden"] { opacity: 0 !important; }
+#pet.poof-hide #body { opacity: 0; }
+#pet.poof-pop #body { animation: poof-pop .5s cubic-bezier(.2, 1.7, .45, 1) both; }
+@keyframes poof-pop { from { transform: scale(.3); opacity: 0; } 35% { opacity: 1; } to { transform: scale(1); opacity: 1; } }
+/* la nube sale de su cuerpo y crece o se encoge con su modelo (Opus, Sonnet, Haiku) */
+.poof { position: absolute; left: 48.6%; bottom: calc(22% * var(--ps, 1)); width: 0; height: 0; z-index: 3; pointer-events: none; scale: var(--ps, 1); }
+.poof i {
+  position: absolute; left: 0; top: 0; width: var(--z); height: var(--z);
+  margin: calc(var(--z) / -2) 0 0 calc(var(--z) / -2); border-radius: 50%;
+  background: radial-gradient(circle at 38% 32%, #fff 0%, #ece9e4 42%, rgba(196, 191, 184, .9) 66%, rgba(196, 191, 184, 0) 71%);
+  animation: puff 1.15s cubic-bezier(.12, .8, .3, 1) var(--dl) both;
+}
+@keyframes puff {
+  0% { transform: translate(0, 0) scale(.15); opacity: 0; }
+  10% { opacity: 1; }
+  40% { transform: translate(var(--dx), var(--dy)) scale(1); opacity: .96; }
+  100% { transform: translate(calc(var(--dx) * 1.3), calc(var(--dy) * 1.3 - 22px)) scale(1.3); opacity: 0; }
+}
+.poof b {
+  position: absolute; left: 0; top: 0; width: 90px; height: 90px; margin: -45px 0 0 -45px; border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 255, 255, .95), rgba(255, 255, 255, .5) 35%, rgba(255, 255, 255, 0) 70%);
+  animation: poof-flash .4s ease-out both;
+}
+@keyframes poof-flash { from { transform: scale(.2); opacity: 1; } to { transform: scale(1.7); opacity: 0; } }
+.poof s {
+  position: absolute; left: 0; top: 0; width: 5px; height: 5px; margin: -2.5px 0 0 -2.5px;
+  background: var(--orange); filter: var(--ctint, none);
+  animation: spark .8s ease-out var(--dl) both;
+}
+@keyframes spark {
+  0% { transform: translate(0, 0) scale(.5); opacity: 0; }
+  15% { opacity: 1; }
+  100% { transform: translate(var(--dx), var(--dy)) scale(1) rotate(90deg); opacity: 0; }
+}

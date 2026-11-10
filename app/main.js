@@ -317,7 +317,8 @@ function ensureIdentity(p, info) {
   const rec = recOf(p);
   if (info && info.cwd) rec.cwd = info.cwd;
   rec.seen = Date.now();
-  const others = livePets().filter((q) => q !== p);
+  const all = livePets().filter((q) => q !== p);
+  const others = all.filter((q) => !q.helper);      // los ayudantes traen el color de quien los llamó: no cuentan
   // un color que no traiga ningún otro Clawd en pantalla (el primero, naranja; los que eligiste tú no se tocan)
   const freeColor = () => {
     const taken = new Set(others.map((q) => recOf(q).color || 'naranja'));
@@ -327,7 +328,7 @@ function ensureIdentity(p, info) {
   const clash = () => new Set(others.map((q) => recOf(q).color || 'naranja')).has(rec.color || 'naranja');
   // ya tiene nombre: si su color lo puso la app (no tú) y choca con otro en pantalla, le toca otro
   if (rec.name) { if (!rec.color || (rec.autoColor && clash())) { rec.color = freeColor(); rec.autoColor = true; saveCfg(); } return; }
-  const used = new Set(others.map((q) => recOf(q).name));
+  const used = new Set(all.map((q) => recOf(q).name));
   const proj = rec.cwd && !isScratch(rec.cwd) ? cfg.projects[rec.cwd] : null;
   if (proj && proj.name && !used.has(proj.name)) { rec.name = proj.name; rec.color = proj.color; }
   else rec.name = NAMES.find((n) => !used.has(n)) || `Clawd ${pets.size}`;
@@ -486,6 +487,33 @@ function spotFor(p) {
   const wa = screen.getPrimaryDisplay().workArea;
   return { x: Math.max(x, wa.x - zr(PET_LEFT_IN_WIN)), y: d.y, side: x < wa.x ? 'left' : 'right' };
 }
+// junto a otro Clawd: a su derecha, a su izquierda, más a la derecha… (uno por cada ayudante que ya trae)
+function spotNear(p, from) {
+  const f = feetOf(from);
+  const taken = livePets().filter((q) => q !== p && q.helper && q.helperOf === from).map((q) => (q.spot ? q.spot.x : posOf(q)[0]));
+  const gap = isBar() ? zr(92) : zr(125);
+  const free = (x) => !taken.some((t) => Math.abs(t - x) < gap / 2);
+  if (isBar()) {
+    const g = taskbarGeom();
+    const y = g.top - dims().h;
+    for (let k = 1; k <= 8; k++) for (const sgn of [1, -1]) {
+      const { x } = winForFeet(p, f.x + sgn * k * gap, f.y, 'right');
+      if (x >= g.minX && x <= g.maxX && free(x)) return { x, y, side: 'right' };
+    }
+    const { x } = winForFeet(p, f.x - gap, f.y, 'right');
+    return { x: clamp(x, g.minX, g.maxX), y, side: 'right' };
+  }
+  const wa = workAreaAt(...posOf(from));
+  const lo = wa.x + zr(50), hi = wa.x + wa.width - zr(50);
+  const at = (fx) => { const side = fx - petBoxW() < wa.x + zr(120) ? 'left' : 'right'; const w = winForFeet(p, fx, f.y, side); return { x: w.x, y: w.y, side }; };
+  for (let k = 1; k <= 8; k++) for (const sgn of [1, -1]) {
+    const fx = f.x + sgn * k * gap;
+    if (fx < lo || fx > hi) continue;
+    const s = at(fx);
+    if (free(s.x)) return s;
+  }
+  return at(clamp(f.x - gap, lo, hi));
+}
 // su lugar solo se guarda cuando TÚ lo mueves (o cuando termina de llegar caminando)
 function savePos(p) {
   if (SHOT || !p.alive || p.walking || p.entranceInfo || p.move || p.social) return;
@@ -529,13 +557,22 @@ function taskbarSide(p) {
   return x + dims().w / 2 < b.x + b.width / 2 ? 'left' : 'right';
 }
 
-function createPetWindow(p, entrance) {
+function createPetWindow(p, entrance, o = {}) {
   const { w, h } = dims();
   p.entranceInfo = null;
+  p.poofIn = false;
   let pos;
   if (SHOT) {
     pos = { x: -3000, y: 100 };
     if (!isBar() && arg('--side')) p.side = arg('--side');
+  } else if (o.near) {
+    // ayudante: aparece de golpe (en una nube de humo) junto al Clawd que lo llamó, sin caminar desde la orilla
+    const s = spotNear(p, o.near);
+    p.side = s.side;
+    pos = { x: s.x, y: s.y };
+    p.spot = { x: s.x, y: s.y };
+    if (isBar()) p.homeX = s.x;
+    p.poofIn = !!entrance;
   } else {
     const s = spotFor(p);
     p.side = s.side;
@@ -662,6 +699,7 @@ ipcMain.handle('opts:get', (e, id) => {
     mode: isBar() ? 'taskbar' : 'desktop',
     side: !p ? 'right' : isBar() ? taskbarSide(p) : p.side,
     entrance: !p ? null
+      : p.poofIn ? (p.poofIn = false, { mode: 'poof' })
       : p.entranceInfo ? { mode: 'walk', from: p.entranceInfo.from }
         : (SHOT && arg('--entrance') ? { mode: 'walk', from: arg('--entrance') } : null),
     identity: p ? identityOf(p) : null,
@@ -1763,6 +1801,7 @@ function runHelper(from, boss, t, resolve) {
   p.helperOf = from || null;
   const rec = recOf(p);
   ensureIdentity(p);                               // nombre de Clawd (Chispa, Migas…), como los demás
+  if (from) { rec.color = recOf(from).color || 'naranja'; rec.autoColor = false; }   // del mismo color que quien lo llamó
   // usa las extensiones que pidió (o las de quien lo invocó), si existen
   const all = readExtensions();
   const ext = (Array.isArray(t.extensiones) && t.extensiones.length ? t.extensiones : (from ? recOf(from).ext || [] : []))
@@ -1770,7 +1809,7 @@ function runHelper(from, boss, t, resolve) {
   rec.ext = ext;
   rec.chat = { lite: true, model: HELPER_MODELS[fam], pinned: true, history: [] };
   p.chat = null;
-  createPetWindow(p, !OPTS.noIntro);
+  createPetWindow(p, !OPTS.noIntro, { near: from && from.alive ? from : null });   // aparece en una nube de humo junto a él
   log(`delegar: ${rec.name} (${fam}) llega para: ${String(t.tarea).slice(0, 80)}`);
   let finished = false;
   const finish = (r) => {
@@ -2535,6 +2574,9 @@ app.whenReady().then(async () => {
         else if (what === 'show') showAll();
         else if (what === 'summon') summonClawd();
         else if (what.startsWith('chat=')) { const [, sid, text] = what.split('='); const p = livePets().find((q) => (q.sid || 'anfitrion').startsWith(sid)); if (p) chatSend(p, text); }
+        else if (what.startsWith('deleg=')) { const [, sid, models] = what.split('='); const p = livePets().find((q) => (q.sid || 'anfitrion').startsWith(sid)); delegate(p, models.split(',').map((m) => ({ tarea: 'Responde solo con la palabra listo', modelo: m }))).then((r) => log('prueba delegar: ' + r.map((x) => x.nombre + '=' + x.texto).join(' | '))).catch((e) => log('prueba delegar error: ' + e)); }
+        else if (what.startsWith('burst=')) { const [, pre, n, ms] = what.split('='); let k = 0; const t = setInterval(() => { const w = sharedWin || anyWin(); if (++k > Number(n) || !w || w.isDestroyed()) { clearInterval(t); return; } const name = pre + String(k).padStart(3, '0'); w.webContents.capturePage().then((img) => fs.writeFileSync(path.join(path.dirname(LOG), name + '.png'), img.toPNG())).catch(() => {}); }, Number(ms)); }
+        else if (what.startsWith('shot=')) { const w = sharedWin || anyWin(); if (w) w.webContents.capturePage().then((img) => fs.writeFileSync(path.join(path.dirname(LOG), what.slice(5) + '.png'), img.toPNG())).catch((e) => log('shot error: ' + e)); }
         else if (what === 'gshow') { if (sharedWin) sharedWin.webContents.executeJavaScript('groupShow()').catch(() => {}); }
         else if (what.startsWith('js64=')) { const w = sharedWin || anyWin(); const code = Buffer.from(what.slice(5), 'base64').toString('utf8'); if (w) w.webContents.executeJavaScript(code).then((r) => log('js: ' + JSON.stringify(r) + ' visible=' + w.isVisible() + ' bounds=' + JSON.stringify(w.getBounds()))).catch((e) => log('js error: ' + e)); }
         else if (what.startsWith('js=')) { const w = sharedWin || anyWin(); if (w) w.webContents.executeJavaScript(what.slice(3)).then((r) => log('js: ' + JSON.stringify(r))).catch((e) => log('js error: ' + e)); }
@@ -2551,7 +2593,8 @@ function followTaskbar() {
   for (const p of livePets()) {
     if (p.move && !p.social) stopMove(p, true);
     const [x] = posOf(p);
-    moveWin(p, clamp(x, g.minX, g.maxX), g.top - dims().h);
+    const y = g.top - dims().h;
+    if (p.entranceInfo) { p.entranceInfo.y = y; moveWin(p, x, y); } else moveWin(p, clamp(x, g.minX, g.maxX), y);
   }
   groupKey = '';
 }
@@ -2560,7 +2603,13 @@ function reflowScreen() {
   if (isShared()) layoutShared();
   for (const p of livePets()) {
       stopMove(p);
-      if (isBar()) { const g = taskbarGeom(); const [x] = posOf(p); moveWin(p, clamp(x, g.minX, g.maxX), g.top - dims().h); p.send('side', taskbarSide(p)); continue; }
+      if (isBar()) {
+        const g = taskbarGeom(); const [x] = posOf(p); const y = g.top - dims().h;
+        // el que viene entrando se queda pegado a la orilla (solo cambia de piso); los demás, dentro de la pantalla
+        if (p.entranceInfo) { p.entranceInfo.y = y; moveWin(p, x, y); } else moveWin(p, clamp(x, g.minX, g.maxX), y);
+        p.send('side', taskbarSide(p)); continue;
+      }
+      if (p.entranceInfo) continue;                   // viene entrando desde la orilla: termina su entrada
       const [x, y] = posOf(p);
       const wa = workAreaAt(x, y);
       if (x > wa.x + wa.width - 100 || y > wa.y + wa.height - 100) {
