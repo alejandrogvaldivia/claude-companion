@@ -561,3 +561,5 @@ body.gopen .clawd.mode-taskbar #work.compact { opacity: 0; pointer-events: none;
 .clawd.mode-taskbar #work { align-items: center; width: max-content; max-width: 420px; }   /* mide lo que muestra: así se centra bien */
 .clawd.mode-taskbar #work.compact { align-items: center; }
 #work.placing { transition: opacity .4s ease, transform .4s ease !important; }   /* al aparecer: sin deslizarse a su lugar */
+#pet.lurk-l #body { transform-origin: 0% 100%; }   /* asomándose: pegado a su orilla aunque sea más chico */
+#pet.lurk-r #body { transform-origin: 100% 100%; }

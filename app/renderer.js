@@ -462,7 +462,7 @@ api.on('walk', (d) => {
 // =====================================================================
 function endEntrance() {
   entrance.active = false;
-  el.pet.classList.remove('entering', 'mirror');
+  el.pet.classList.remove('entering', 'mirror', 'lurk-l', 'lurk-r');
 }
 function runEntrance(e) {
   entrance.active = true;
@@ -474,7 +474,8 @@ function runEntrance(e) {
   if (e.mode === 'desktop' || e.mode === 'walk') {
     // se asoma desde la orilla más cercana a donde estaba y luego camina hasta su lugar
     el.pet.classList.toggle('mirror', e.from === 'right');
-    playOnce('lurking', null, { then: () => { el.pet.classList.remove('mirror'); api.entranceWalk(); } });
+    lurkFrom(e.from);
+    playOnce('lurking', null, { then: () => { lurkFrom(null); el.pet.classList.remove('mirror'); api.entranceWalk(); } });
     return;
   }
   // barra de tareas: se asoma desde la orilla de su franja y entra caminando
@@ -482,14 +483,21 @@ function runEntrance(e) {
   const W = stripW(), bw = boxW();
   setPetX(fromRight ? W - bw : 0);
   el.pet.classList.toggle('mirror', fromRight);
+  lurkFrom(e.from);
   playOnce('lurking', null, {
     then: () => {
+      lurkFrom(null);
       el.pet.classList.remove('mirror');
       setPetX(fromRight ? W - bw * 0.22 : -bw * 0.74);
       const tx = fromRight ? W - bw - 30 - Math.random() * 60 : 30 + Math.random() * 60;
       walkTo(tx, 55, () => { endEntrance(); idleNextAt = Date.now() + IDLE_GAP_MS[0]; });
     },
   });
+}
+// al asomarse, si es más chico (Sonnet, Haiku) se encoge hacia la orilla de la que se asoma, para seguir pegado a ella
+function lurkFrom(side) {
+  el.pet.classList.toggle('lurk-l', side === 'left');
+  el.pet.classList.toggle('lurk-r', side === 'right');
 }
 api.on('bye', () => {
   leaving = true;
