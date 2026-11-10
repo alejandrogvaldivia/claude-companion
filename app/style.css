@@ -56,7 +56,7 @@ html, body {
 /* encima de otro Clawd: quieto, sin flotecito */
 #pet.perch .layer-on { animation: none !important; }
 #fx.talk { color: #fff; font-size: 19px; text-shadow: 0 0 0 #000, 1px 1px 0 #1f1e1d, -1px -1px 0 #1f1e1d, 1px -1px 0 #1f1e1d, -1px 1px 0 #1f1e1d; animation: bang .9s ease-in-out infinite; }
-#talk, #work, #ask { z-index: 5; }
+#talk, #work, #ask { z-index: 60; }   /* los globos, arriba de las animaciones de todos los Clawds */
 #gif, #gif2, #lottie, #nap, #hang { position: absolute; inset: 0; width: 100%; height: 100%; }
 #hang { display: none; }
 #pet.hanging { cursor: grabbing; }
@@ -326,7 +326,7 @@ html, body {
 .clawd { position: absolute; left: 0; top: 0; width: 520px; height: 480px; pointer-events: none; }
 .clawd.mode-taskbar { width: 430px; }
 .clawd #talk, .clawd #strip { pointer-events: auto; }
-body.shared .clawd { transition: transform 45ms linear; will-change: transform; }
+body.shared .clawd { transition: left 45ms linear, top 45ms linear; }   /* sin transform/will-change: no crea capa propia */
 body.shared .clawd.leaving { transition: none; }
 /* en la ventana compartida la plática va en el chat grupal, no encima de cada uno */
 body.shared .clawd #ask, body.shared .clawd #talk, body.shared .clawd #says { display: none !important; }

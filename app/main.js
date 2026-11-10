@@ -236,10 +236,13 @@ function desktopValid(d) {
   return ok ? cand : null;
 }
 // barra de tareas: las ventanas se paran justo encima de la barra (abajo de la pantalla principal)
+// con algo en pantalla completa o la barra en "ocultar automáticamente", bajan hasta la orilla de la pantalla
+let fsOn = false, ahOn = false;
+const floorLow = () => fsOn || ahOn;
 function taskbarGeom() {
   const d = screen.getPrimaryDisplay();
   const wa = d.workArea, b = d.bounds;
-  return { top: wa.y + wa.height, minX: b.x, maxX: b.x + b.width - dims().w, b };
+  return { top: floorLow() ? b.y + b.height : wa.y + wa.height, minX: b.x, maxX: b.x + b.width - dims().w, b };
 }
 // grupo: un área donde conviven (sus pies se mueven dentro), anclada abajo a la derecha
 const GROUP_W = 600, GROUP_H = 230;
@@ -2395,7 +2398,15 @@ function startWatcher() {
     watcher = spawn(WATCHER, [], { windowsHide: true, stdio: ['pipe', 'pipe', 'ignore'] });
   }
   watcher.stdout.on('data', (d) => {
-    for (const line of String(d).split(/\r?\n/)) if (line === '0' || line === '1') onClaude(line === '1');
+    for (const raw of String(d).split(/\r?\n/)) {
+      const line = raw.trim();
+      if (line === '0' || line === '1') onClaude(line === '1');
+      else if (/^[FA][01]$/.test(line)) {
+        const was = floorLow();
+        if (line[0] === 'F') fsOn = line[1] === '1'; else ahOn = line[1] === '1';
+        if (floorLow() !== was) { log(`piso: ${floorLow() ? 'hasta abajo (pantalla completa o barra oculta)' : 'sobre la barra de tareas'}`); reflowScreen(); }
+      }
+    }
   });
   watcher.on('error', (e) => log('vigilante: ' + e));
   watcher.on('exit', () => { watcher = null; if (!quitting) setTimeout(startWatcher, 5000); });
@@ -2516,8 +2527,12 @@ app.whenReady().then(async () => {
       }, Number(ms));
     }
   }
-  screen.on('display-metrics-changed', () => {
-    for (const p of livePets()) {
+  screen.on('display-metrics-changed', reflowScreen);
+});
+// cambió la pantalla (o el piso): se reacomodan
+function reflowScreen() {
+  if (isShared()) layoutShared();
+  for (const p of livePets()) {
       stopMove(p);
       if (isBar()) { const g = taskbarGeom(); const [x] = posOf(p); moveWin(p, clamp(x, g.minX, g.maxX), g.top - dims().h); p.send('side', taskbarSide(p)); continue; }
       const [x, y] = posOf(p);
@@ -2525,9 +2540,8 @@ app.whenReady().then(async () => {
       if (x > wa.x + wa.width - 100 || y > wa.y + wa.height - 100) {
         const s = spotFor(p); p.side = s.side; p.send('side', s.side); moveWin(p, s.x, s.y);
       } else checkSide(p);
-    }
-  });
-});
+  }
+}
 // otra vez desde el menú Inicio mientras ya vive en segundo plano: que aparezcan
 app.on('second-instance', showAll);
 // no se cierra al ocultar las ventanas: sigue vigilando en segundo plano

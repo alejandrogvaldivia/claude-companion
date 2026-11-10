@@ -1,9 +1,15 @@
 // Vigilante de Claude Desktop para Claude Companion.
-// Imprime "1" cuando Claude Desktop está abierto y "0" cuando se cierra (solo cuando cambia).
+// Imprime (solo cuando cambia):
+//   "1" / "0"   Claude Desktop abierto / cerrado.
+//   "F1" / "F0" hay una ventana en pantalla completa en la pantalla principal (un video, un juego…) / ya no.
+//   "A1" / "A0" la barra de tareas está en "ocultar automáticamente" / ya no.
+// Con F1 o A1 los Clawds de la barra de tareas bajan hasta la orilla de la pantalla.
 // Distingue Claude Desktop (carpeta AnthropicClaude o paquete de la Store) de las sesiones de
 // Claude Code, que también se llaman claude.exe. Se cierra solo si la app que lo abrió se cierra.
 using System;
 using System.Diagnostics;
+using System.Runtime.InteropServices;
+using System.Text;
 using System.Threading;
 
 class ClaudeWatcher
@@ -42,6 +48,50 @@ class ClaudeWatcher
         return false;
     }
 
+    // ---------- pantalla completa y barra de tareas oculta ----------
+    [StructLayout(LayoutKind.Sequential)] struct RECT { public int Left, Top, Right, Bottom; }
+    [StructLayout(LayoutKind.Sequential)] struct MONITORINFO { public int cbSize; public RECT rcMonitor, rcWork; public uint dwFlags; }
+    [StructLayout(LayoutKind.Sequential)] struct APPBARDATA { public int cbSize; public IntPtr hWnd; public uint uCallbackMessage, uEdge; public RECT rc; public IntPtr lParam; }
+    [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr h, out RECT r);
+    [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
+    [DllImport("user32.dll")] static extern IntPtr MonitorFromWindow(IntPtr h, uint flags);
+    [DllImport("user32.dll")] static extern bool GetMonitorInfo(IntPtr m, ref MONITORINFO mi);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetClassName(IntPtr h, StringBuilder s, int n);
+    [DllImport("shell32.dll")] static extern UIntPtr SHAppBarMessage(uint msg, ref APPBARDATA d);
+
+    static bool Fullscreen()
+    {
+        try
+        {
+            IntPtr h = GetForegroundWindow();
+            if (h == IntPtr.Zero || !IsWindowVisible(h)) return false;
+            var cls = new StringBuilder(64);
+            GetClassName(h, cls, 64);
+            string c = cls.ToString();
+            if (c == "Progman" || c == "WorkerW" || c == "Shell_TrayWnd" || c == "Shell_SecondaryTrayWnd") return false;   // el escritorio y la barra
+            RECT r;
+            if (!GetWindowRect(h, out r)) return false;
+            var mi = new MONITORINFO(); mi.cbSize = Marshal.SizeOf(typeof(MONITORINFO));
+            if (!GetMonitorInfo(MonitorFromWindow(h, 2), ref mi)) return false;
+            if ((mi.dwFlags & 1) == 0) return false;   // solo la pantalla principal (ahí viven los Clawds)
+            return r.Left <= mi.rcMonitor.Left && r.Top <= mi.rcMonitor.Top && r.Right >= mi.rcMonitor.Right && r.Bottom >= mi.rcMonitor.Bottom;
+        }
+        catch { return false; }
+    }
+
+    static bool AutoHide()
+    {
+        try
+        {
+            var d = new APPBARDATA(); d.cbSize = Marshal.SizeOf(typeof(APPBARDATA));
+            return ((uint)SHAppBarMessage(4 /* ABM_GETSTATE */, ref d) & 1 /* ABS_AUTOHIDE */) != 0;
+        }
+        catch { return false; }
+    }
+
+    static void Say(string s) { Console.Out.WriteLine(s); Console.Out.Flush(); }
+
     static void Main()
     {
         var guard = new Thread(() => {
@@ -51,17 +101,22 @@ class ClaudeWatcher
         guard.IsBackground = true;
         guard.Start();
 
-        int last = -1;
-        while (true)
+        int last = -1, lastF = -1, lastA = -1;
+        for (int tick = 0; ; tick++)
         {
-            int now = Running() ? 1 : 0;
-            if (now != last)
+            if (tick % 4 == 0)                       // Claude: cada 2 s
             {
-                Console.Out.WriteLine(now);
-                Console.Out.Flush();
-                last = now;
+                int now = Running() ? 1 : 0;
+                if (now != last) { Say(now.ToString()); last = now; }
             }
-            Thread.Sleep(2000);
+            int f = Fullscreen() ? 1 : 0;            // pantalla completa: cada medio segundo
+            if (f != lastF) { Say("F" + f); lastF = f; }
+            if (tick % 4 == 0)
+            {
+                int a = AutoHide() ? 1 : 0;
+                if (a != lastA) { Say("A" + a); lastA = a; }
+            }
+            Thread.Sleep(500);
         }
     }
 }

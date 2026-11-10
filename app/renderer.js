@@ -1353,10 +1353,10 @@ api0.on('page:remove', (d) => removeClawd(d.id));
 api0.on('page:place', (list) => {
   for (const d of list) {
     const p = PAGE.pets.get(d.id);
-    if (p) p.root.style.transform = `translate(${d.x}px, ${d.y}px)`;
+    if (p) { p.root.style.left = `${d.x}px`; p.root.style.top = `${d.y}px`; }   // (sin transform: así los globos de todos van en una capa arriba de todas las animaciones)
   }
 });
-api0.on('page:z', (ids) => ids.forEach((id, i) => { const p = PAGE.pets.get(id); if (p) p.root.style.zIndex = String(i + 1); }));
+api0.on('page:z', (ids) => ids.forEach((id, i) => { const p = PAGE.pets.get(id); if (p) p.root.querySelector('#pet').style.zIndex = String(i + 1); }));   // quién va delante: solo entre Clawds
 api0.on('page:group', (d) => { Object.assign(G, { pets: d.pets || G.pets, feed: d.feed || G.feed }); if (d.pos) placeGroup(d.pos); applyPending(); renderGroup(); });
 
 api0.init().then((o) => {
