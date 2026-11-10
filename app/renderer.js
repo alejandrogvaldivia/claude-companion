@@ -1217,7 +1217,7 @@ window.addEventListener('resize', fadeAll);
 const fmtSecs = (ms) => { const s = Math.floor(ms / 1000); return s < 2 ? '' : s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`; };
 function livePill(label, t0) {
   t0 = t0 || Date.now();
-  return `<span class="lpill"><span class="spin3"><i></i><i></i><i></i></span><b>${esc0(label || 'Pensando…')}</b>` +
+  return `<span class="lpill"><span class="spin3"><i></i><i></i><i></i><i></i></span><b>${esc0(label || 'Pensando…')}</b>` +
     `<span class="lsec" data-t0="${t0}">${fmtSecs(Date.now() - t0)}</span></span>`;
 }
 setInterval(() => {
@@ -1466,7 +1466,7 @@ function syncFloor() {
       const r = any.root.getBoundingClientRect();
       gFloor.style.left = `${Math.round(g.left)}px`;
       gFloor.style.width = `${Math.round(g.width)}px`;
-      gFloor.style.top = `${Math.round(r.bottom - 40)}px`;
+      gFloor.style.top = `${Math.round(r.bottom - (gFloor.offsetHeight || 64))}px`;
     }
   }
   gFloor.classList.toggle('show', on);

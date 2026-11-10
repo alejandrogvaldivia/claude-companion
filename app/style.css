@@ -496,9 +496,19 @@ body.shared #group { display: flex; }
 
 /* barra de tareas (ventana compartida): el brillo del piso va bajo el chat, de su mismo ancho y del color del Clawd */
 #gfloor {
-  position: absolute; display: none; height: 40px; pointer-events: none; border-radius: 10px 10px 0 0;
-  background: linear-gradient(to top, rgba(217, 119, 87, .26), rgba(217, 119, 87, 0)); filter: var(--ctint, none);
+  position: absolute; display: none; height: 64px; pointer-events: none;
+  /* un brillo de luz: núcleo intenso al ras del piso que se desvanece hacia arriba y a los lados */
+  background:
+    radial-gradient(ellipse 44% 72% at 50% 100%, rgba(255, 150, 100, .62), rgba(235, 115, 70, .24) 45%, rgba(217, 119, 87, 0) 100%),
+    radial-gradient(ellipse 49% 34% at 50% 100%, rgba(255, 140, 90, .4), rgba(217, 119, 87, 0) 100%);
+  mix-blend-mode: screen; filter: var(--ctint, none);
   opacity: 0; transition: opacity .35s ease;
+}
+/* la línea de luz sobre el piso */
+#gfloor::after {
+  content: ''; position: absolute; left: 6%; right: 6%; bottom: 0; height: 2px; border-radius: 2px;
+  background: radial-gradient(ellipse 50% 100% at 50% 50%, rgba(255, 225, 200, .95), rgba(255, 140, 90, .55) 55%, rgba(255, 130, 80, 0) 100%);
+  filter: blur(.5px);
 }
 body.shared #gfloor { display: block; }
 #gfloor.show { opacity: 1; }
@@ -529,3 +539,20 @@ body.shared .clawd.mode-taskbar #strip:hover { background: none; }
 /* los puntitos de "trabajando" (arriba del Clawd y en el chat) son de su color */
 #spin i, .spin3 i { filter: var(--ctint, none); }
 body.gopen .clawd.mode-taskbar #work.compact { opacity: 0; pointer-events: none; }
+
+/* "trabajando": cuatro puntitos en cuadro que se encienden en orden, con el mismo pulso que Claude Code
+   (cds-dot-pulse de Claude Desktop: 1.8 s, de .2857 a 1 de opacidad) */
+#spin, .spin3 { position: relative; width: 10px; height: 10px; flex: none; }
+#spin i, .spin3 i {
+  position: absolute; width: 3.6px; height: 3.6px; border-radius: 50%; background: var(--orange);
+  opacity: .2857; transform: none; animation: dot-pulse4 1.8s linear infinite;
+}
+#spin i:nth-child(1), .spin3 i:nth-child(1) { left: 0; top: 0; }
+#spin i:nth-child(2), .spin3 i:nth-child(2) { left: 6.4px; top: 0; animation-delay: .2s; }
+#spin i:nth-child(3), .spin3 i:nth-child(3) { left: 6.4px; top: 6.4px; animation-delay: .4s; }
+#spin i:nth-child(4), .spin3 i:nth-child(4) { left: 0; top: 6.4px; animation-delay: .6s; }
+@keyframes dot-pulse4 {
+  0%, 5% { opacity: .2857; animation-timing-function: cubic-bezier(.165, .84, .44, 1); }
+  15%, 25% { opacity: 1; animation-timing-function: cubic-bezier(.165, .84, .44, 1); }
+  65%, 100% { opacity: .2857; }
+}
