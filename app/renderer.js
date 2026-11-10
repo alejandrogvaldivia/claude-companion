@@ -638,7 +638,7 @@ function waitLoop(now) {
   }
   return now >= waitUntil - 40;
 }
-const tickTimer = setInterval(() => { if (!dead) { tick(); if (elWork.classList.contains('show')) placeCompact(); } }, 150);
+const tickTimer = setInterval(() => { if (!dead) tick(); }, 150);
 
 // =====================================================================
 //  Pastilla de estado de Claude Code
@@ -656,26 +656,36 @@ function statusVisible() {
   if (!st.hasInfo || talkVisible || leaving) return false;
   return statusFull() || busyNow();
 }
-// barra de tareas: lo de arriba (la pastilla o todo el panel) va centrado sobre el Clawd y lo sigue al caminar;
-// solo se recorre cuando centrado se saldría de la pantalla
+// barra de tareas: lo de arriba (la pastilla o todo el panel) va centrado sobre el Clawd, a la misma altura
+// sobre su cabeza siempre, y lo sigue cuadro por cuadro (también mientras se asoma y entra); solo se recorre
+// cuando centrado se saldría de la pantalla
+const elBody = $('body');
+function petScaleNow() { const v = parseFloat(getComputedStyle(elBody).scale); return Number.isFinite(v) ? v : (ident.scale || 1); }
 function placeCompact(vis) {
   if (vis === undefined) vis = elWork.classList.contains('show');
   if (!isBar()) { elWork.style.left = ''; elWork.style.right = ''; elWork.style.bottom = ''; return; }
   if (!vis) return;                      // escondido: se queda donde estaba (así, al volver, no brinca)
   const compact = elWork.classList.contains('compact');
   const w = compact ? (el.status.offsetWidth || 160) : (elWork.offsetWidth || 420);
-  const rootLeft = root.getBoundingClientRect().left;          // dónde está su franja dentro de la ventana
-  const minX = 6 - rootLeft, maxX = window.innerWidth - rootLeft - w - 6;
-  const x = Math.max(minX, Math.min(maxX, wander.x + boxW() / 2 - w / 2));
+  const rr = root.getBoundingClientRect(), pr = el.pet.getBoundingClientRect();
+  const sc = petScaleNow();
+  // dónde está de verdad su cuerpo: se encoge hacia su orilla al asomarse, hacia el centro el resto del tiempo
+  const ox = el.pet.classList.contains('lurk-l') ? 0 : el.pet.classList.contains('lurk-r') ? 1 : 0.486;
+  const cx = pr.left - rr.left + pr.width * (ox + (0.486 - ox) * sc);
+  const minX = 6 - rr.left, maxX = window.innerWidth - rr.left - w - 6;
+  const x = Math.max(minX, Math.min(maxX, cx - w / 2));
   elWork.style.right = 'auto';
   elWork.style.left = `${Math.round(x)}px`;
-  elWork.style.bottom = compact ? `${Math.round(8 + 44 * (ident.scale || 1))}px` : '';   // la pastilla, justo arriba de su cabeza
+  elWork.style.bottom = `${Math.round(8 + 44 * sc)}px`;   // siempre justo arriba de su cabeza
 }
-function flashStatus(ms) {
-  statusFlashUntil = Date.now() + ms;
-  clearTimeout(statusFlashT);
-  statusFlashT = setTimeout(renderStatus, ms + 30);
+let followRaf = 0;
+function followLoop() {
+  followRaf = 0;
+  if (dead || !isBar() || !elWork.classList.contains('show')) return;
+  placeCompact(true);
+  followRaf = requestAnimationFrame(followLoop);
 }
+function startFollow() { if (!followRaf && isBar()) followRaf = requestAnimationFrame(followLoop); }
 const elWork = $('work'), elPlan = $('plan'), elSays = $('says'), elTime = $('time');
 let planKey = '', saysKey = '', lastSayId = null, sayOpen = null;
 function renderPlan() {
@@ -730,6 +740,7 @@ function renderStatus() {
   placeCompact(vis);
   if (jump) { void elWork.offsetWidth; requestAnimationFrame(() => requestAnimationFrame(() => elWork.classList.remove('placing'))); }
   elWork.classList.toggle('show', vis);
+  if (vis) startFollow();
 }
 elPlan.addEventListener('click', () => api.openSession());
 api.on('status', (s) => {
