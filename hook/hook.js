@@ -146,8 +146,11 @@ function main(d) {
   if ((tool === 'Agent' || tool === 'Task') && ev === 'PreToolUse') { try { agentLaunch(sid, d); } catch (_) { /* nada */ } }
   if ((tool === 'Agent' || tool === 'Task') && (ev === 'PostToolUse' || ev === 'PostToolUseFailure')) {
     const k = safeKey(d.tool_use_id);
-    // el que corre en primer plano ya terminó; el de segundo plano sigue hasta su SubagentStop
-    if (k) agentGone(sid, (o) => o.key === k && (!o.bg || ev === 'PostToolUseFailure'));
+    // el que corre en primer plano ya terminó; el que sigue en segundo plano (o del que Claude Code avisa
+    // cuándo arranca y termina) se queda hasta su SubagentStop
+    const resp = (() => { try { return JSON.stringify(d.tool_response || ''); } catch (_) { return ''; } })();
+    const async = /async|background|segundo plano/i.test(resp);
+    if (k) agentGone(sid, (o) => o.key === k && (ev === 'PostToolUseFailure' || (!o.bg && !o.agent_id && !async)));
   }
 
   let cur = {};
