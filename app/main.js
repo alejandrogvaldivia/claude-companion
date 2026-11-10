@@ -1068,7 +1068,8 @@ function reconcile(list) {
       if (host.chat) { saveChat(host); host.chat = null; }   // su plática sin sesión se queda guardada como la del anfitrión
       host.sid = s.sid; ensureIdentity(host, s); sendIdentity(host, true);
       host.send('chat:history', chatOf(host).history); host.send('model', modelInfo(chatOf(host).model)); log(`Clawd #${host.id} ahora es la sesión ${s.sid.slice(0, 8)}`); continue; }
-    if (livePets().length >= cfg.maxPets) break;
+    // el tope es solo para los de sesiones: los invocados y los ayudantes no les quitan lugar
+    if (livePets().filter((q) => q.sid).length >= cfg.maxPets) break;
     const p = new Pet(s.sid);
     ensureIdentity(p, s);
     createPetWindow(p, !OPTS.noIntro);
