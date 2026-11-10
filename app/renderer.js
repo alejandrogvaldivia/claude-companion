@@ -1359,7 +1359,7 @@ function destroy() {
   root.remove();
 }
 // su luz: ocupado (trabajando o contestándote) pulsa, dormido respira, si no, quieta
-const glow = () => (poofing ? 'hidden' : busyNow() || chatBusy ? 'busy' : visual === 'nap' ? 'sleep' : 'idle');
+const glow = () => (poofing ? 'hidden' : st.mode === 'attention' && !leaving ? 'attn' : busyNow() || chatBusy ? 'busy' : visual === 'nap' ? 'sleep' : 'idle');
 return { root, emit: api._emit, destroy, socialOk, glow, stripIn: () => stripIn, hovering: () => hovering || talkHover };
 } // fin de createClawd
 
@@ -1771,6 +1771,12 @@ function unstack() {
     if (tg && tagOn(p) && !tg.classList.contains('tag-hid')) {
       const tr = tg.getBoundingClientRect();
       if (tr.right > r.left && tr.left < r.right && r.bottom + lift > tr.top - 3) min = Math.ceil(r.bottom + lift - tr.top + 3);
+    }
+    // y lo mismo con el globito "!" de cuando te necesita
+    const fx = p.root.querySelector('#fx.bang');
+    if (fx) {
+      const fr = fx.getBoundingClientRect();
+      if (fr.width && fr.right > r.left && fr.left < r.right && r.bottom + lift > fr.top - 8) min = Math.max(min, Math.ceil(r.bottom + lift - fr.top + 8));
     }
     items.push({ id, w, min, l: r.left, r: r.right, t: r.top + lift, b: r.bottom + lift });
   }

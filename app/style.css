@@ -76,7 +76,12 @@ html, body {
   pointer-events: none; text-shadow: 0 1px 0 rgba(0,0,0,.25);
 }
 #fx.z { color: #afc3ee; animation: zzz 2.2s ease-out infinite; }
-#fx.bang { color: #f2c94c; font-size: 22px; animation: bang .7s ease-in-out infinite; }
+/* te necesita: el "!" va en un globito amarillo (con orilla y sombra como los globos de Clawd), brincando */
+#fx.bang {
+  color: #1f1e1d; background: #f2c94c; font-size: 20px; font-weight: 900; line-height: 1.1; text-shadow: none;
+  padding: 0 7px 1px; border: 2px solid #1f1e1d; border-radius: 7px; box-shadow: 2px 2px 0 #1f1e1d;
+  animation: bang .7s ease-in-out infinite;
+}
 #fx.note { color: #4cc38a; animation: zzz 1.8s ease-out infinite; }
 #fx.err { color: #eb5757; font-size: 22px; }
 /* la animación oficial de asomarse, en espejo, para entrar por la orilla derecha */
@@ -281,6 +286,7 @@ html, body {
 .clawd.mode-taskbar #strip:hover { background: linear-gradient(to top, rgba(217, 119, 87, .14), rgba(217, 119, 87, 0)); filter: var(--ctint, none); }
 .clawd.mode-taskbar #pet { left: 0; right: auto; bottom: 0; width: 112px; height: 75px; will-change: transform; }
 .clawd.mode-taskbar #fx { zoom: .7; }
+.clawd.mode-taskbar #fx.bang { zoom: 1.2; top: 8%; }   /* el aviso de que te necesita, bien visible también en la barra */
 .clawd.mode-taskbar #ask { right: 5px; left: auto; bottom: 46px; width: 420px; }
 .clawd.mode-taskbar #work { right: 5px; left: auto; bottom: 98px; }
 .clawd.mode-taskbar #talk { right: 0; left: auto; bottom: 90px; width: 428px; }
@@ -644,3 +650,8 @@ body.shared.bar-follow #group { transition: opacity .35s ease, transform .35s ea
 .gmsg.gtype .dots i:nth-child(3) { animation-delay: .36s; }
 @keyframes typing { 0%, 60%, 100% { transform: translateY(0); opacity: .45; } 30% { transform: translateY(-4px); opacity: 1; } }
 .gmsg.gtype .act { font-size: 11.5px; font-style: italic; color: #857c72; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 260px; }
+
+/* te necesita: la luz del piso se pone amarilla y parpadea (más que cuando trabaja) */
+#gfloor .glow[data-state="attn"] { filter: hue-rotate(32deg) saturate(1.5) brightness(1.3) !important; opacity: 1 !important; }
+#gfloor .glow[data-state="attn"]::before, #gfloor .glow[data-state="attn"]::after { animation: glow-attn .9s ease-in-out infinite; }
+@keyframes glow-attn { 0%, 100% { opacity: 1; } 50% { opacity: .2; } }
