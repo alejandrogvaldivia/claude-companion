@@ -1603,6 +1603,8 @@ function feedItems() {
   const out = [];
   for (const it of G.feed) out.push(it);
   for (const [id, l] of G.live) out.push({ k: 'live-' + id, id, who: 'live', text: l.text, tool: l.tool, t0: l.t0, ts: Infinity });
+  // los que están trabajando en su sesión: "escribiendo…", como en un grupo de WhatsApp
+  for (const p of G.pets) if (p.working && !p.chatBusy && !G.live.has(p.id)) out.push({ k: 'typing-' + p.id, id: p.id, who: 'typing', tool: p.activity || '', ts: Infinity });
   if (G.pets.length <= 1 || G.tab === 'all') return out;
   // pestaña de un Clawd: lo que te dice, lo que le escribes, y lo que él les encarga a sus ayudantes
   const t = currentTarget(), me = petInfo(t);
@@ -1641,6 +1643,10 @@ function renderGroup(force) {
   gEl.feed.innerHTML = items.map((i) => {
     const p = petInfo(i.id) || { name: i.name || 'Clawd' };
     const pop = known.has(i.k) ? '' : ' pop';
+    if (i.who === 'typing') {
+      return `<div class="gmsg gtype${pop}" data-k="${i.k}">${avHtml(p)}<div class="gcol"><span class="gname">${esc0(p.name)} <i>· escribiendo…</i></span>` +
+        `<div class="gb"><span class="dots"><i></i><i></i><i></i></span>${i.tool ? `<span class="act">${esc0(i.tool)}</span>` : ''}</div></div></div>`;
+    }
     if (i.who === 'sep') return `<div class="gsep" data-k="${i.k}">Nueva plática con ${esc0(p.name)}</div>`;
     if (i.who === 'you' && i.from) {
       // se lo encargó otro Clawd (delegar): se ve como mensaje de ese Clawd al ayudante

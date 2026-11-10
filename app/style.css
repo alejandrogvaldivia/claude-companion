@@ -635,3 +635,12 @@ body.shared.bar-follow #group { transition: opacity .35s ease, transform .35s ea
   content: ''; position: absolute; inset: -1px; z-index: -1; border-radius: inherit;
   background: var(--orange); filter: var(--ctint, none);
 }
+
+/* ---------- "escribiendo…" de un Clawd que trabaja en su sesión (los 3 puntitos de WhatsApp) ---------- */
+.gmsg.gtype .gb { display: flex; align-items: center; gap: 9px; padding: 8px 12px 9px; }
+.gmsg.gtype .dots { display: inline-flex; gap: 4px; flex: none; }
+.gmsg.gtype .dots i { width: 7px; height: 7px; border-radius: 50%; background: #9a9187; animation: typing 1.3s ease-in-out infinite; }
+.gmsg.gtype .dots i:nth-child(2) { animation-delay: .18s; }
+.gmsg.gtype .dots i:nth-child(3) { animation-delay: .36s; }
+@keyframes typing { 0%, 60%, 100% { transform: translateY(0); opacity: .45; } 30% { transform: translateY(-4px); opacity: 1; } }
+.gmsg.gtype .act { font-size: 11.5px; font-style: italic; color: #857c72; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 260px; }

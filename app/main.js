@@ -1198,7 +1198,10 @@ function sendGroup() {
     const c = chatOf(p);
     const d = p.sid ? deskSession(p.sid) : null;
     const last = c.history[c.history.length - 1];
+    const st = p.sid ? statusFor(p, lastList) : null;
     return {
+      // trabajando en su sesión: en el chat sale "escribiendo…" (los 3 puntitos)
+      working: !!(st && (st.mode === 'working' || st.mode === 'thinking')), activity: st ? String(st.title || '').slice(0, 60) : '',
       id: p.id, name: rec.name || 'Clawd', hue: col.hue || 0, sat: col.sat === undefined ? 1 : col.sat, bright: col.bright || 1,
       model: mf.sure ? mf.fam[0].toUpperCase() + mf.fam.slice(1) : '', chatModel: modelInfo(c.model).label.split(' ')[0],
       chatBusy: !!c.proc, hasSession: !!p.sid, hasChat: !!(last && last.who !== 'sep'),
