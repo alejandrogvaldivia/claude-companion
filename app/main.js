@@ -310,16 +310,28 @@ function ensureIdentity(p, info) {
   const rec = recOf(p);
   if (info && info.cwd) rec.cwd = info.cwd;
   rec.seen = Date.now();
-  if (rec.name) return;
-  const used = new Set(livePets().filter((q) => q !== p).map((q) => recOf(q).name));
+  const others = livePets().filter((q) => q !== p);
+  // un color que no traiga ningún otro Clawd en pantalla (el primero, naranja; los que eligiste tú no se tocan)
+  const freeColor = () => {
+    const taken = new Set(others.map((q) => recOf(q).color || 'naranja'));
+    const c = COLORS.find((x) => !taken.has(x.id));
+    return c ? c.id : COLORS[others.length % COLORS.length].id;
+  };
+  const clash = () => new Set(others.map((q) => recOf(q).color || 'naranja')).has(rec.color || 'naranja');
+  // ya tiene nombre: si su color lo puso la app (no tú) y choca con otro en pantalla, le toca otro
+  if (rec.name) { if (!rec.color || (rec.autoColor && clash())) { rec.color = freeColor(); rec.autoColor = true; saveCfg(); } return; }
+  const used = new Set(others.map((q) => recOf(q).name));
   const proj = rec.cwd && !isScratch(rec.cwd) ? cfg.projects[rec.cwd] : null;
   if (proj && proj.name && !used.has(proj.name)) { rec.name = proj.name; rec.color = proj.color; }
   else rec.name = NAMES.find((n) => !used.has(n)) || `Clawd ${pets.size}`;
+  const takenNow = new Set(others.map((q) => recOf(q).color || 'naranja'));
+  if (!rec.color || takenNow.has(rec.color)) { rec.color = freeColor(); rec.autoColor = true; }   // nuevo: de un color diferente
   saveCfg();
 }
 function setLook(p, change) {
   const rec = recOf(p);
   Object.assign(rec, change);
+  if (change && 'color' in change) rec.autoColor = false;   // lo elegiste tú: ya no se cambia solo
   if (rec.cwd && !isScratch(rec.cwd)) cfg.projects[rec.cwd] = { name: rec.name, color: rec.color };
   saveCfg();
   sendIdentity(p, true);
