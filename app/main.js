@@ -674,6 +674,7 @@ ipcMain.on('pet:hold', (_e, id, on) => {
   const p = pets.get(Number(id));
   if (!p || !p.alive) return;
   p.hold = !!on;
+  p.lastHold = Date.now();                           // tenerlo bajo el cursor cuenta como actividad
   if (!p.hold) return;
   if (p.move && !p.social) { stopMove(p, true); log(`Clawd #${p.id} se detiene (cursor o chat encima)`); }
   if (p.walking) {                                   // venía entrando: se queda donde va
@@ -1049,11 +1050,13 @@ function reconcile(list) {
   }
   // más de 5 min sin actividad: se van todos, aunque sea el último
   if (allow) for (const p of extra) byePet(p, 'sesión inactiva o terminada');
-  // el Clawd sin sesión también se va si nadie platica con él en 5 min
+  // los que no tienen sesión (el anfitrión y los que invocaste) también se van si nadie platica con ellos
+  // en 5 min (si lo tienes bajo el cursor o con el chat abierto encima, no cuenta como inactivo)
   if (allow) {
     for (const p of livePets()) {
-      if (p.sid || p.extra || p.helper || (p.chat && p.chat.proc)) continue;
-      if (Date.now() - Math.max(p.createdAt, p.lastChatAt || 0) > cfg.timing.hideMs) byePet(p, 'sin actividad');
+      if (p.sid || p.helper || p.hold || (p.chat && p.chat.proc)) continue;
+      if (Date.now() - Math.max(p.createdAt, p.lastChatAt || 0, p.lastHold || 0) <= cfg.timing.hideMs) continue;
+      if (p.extra) dismissExtra(p, 'sin actividad'); else byePet(p, 'sin actividad');
     }
   }
   if (!allow) return;
@@ -2372,12 +2375,12 @@ function summonClawd() {
   }, OPTS.noIntro ? 600 : 3200);
   return p.id;
 }
-function dismissExtra(p) {
+function dismissExtra(p, why) {
   cfg.extras = cfg.extras.filter((x) => x !== p.extra);
   delete cfg.clawds['x:' + p.extra];
   saveCfg();
   stopChat(p);
-  byePet(p, 'lo despediste');
+  byePet(p, why || 'lo despediste');
 }
 ipcMain.handle('pet:summon', () => summonClawd());
 
