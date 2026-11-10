@@ -556,7 +556,7 @@ body.shared .clawd.mode-taskbar #strip:hover { background: none; }
 
 /* los puntitos de "trabajando" (arriba del Clawd y en el chat) son de su color */
 #spin i, .spin3 i { filter: var(--ctint, none); }
-body.gopen .clawd.mode-taskbar #work.compact { opacity: 0; pointer-events: none; }
+.clawd.mode-taskbar #work.covered { opacity: 0 !important; pointer-events: none; }   /* solo si queda debajo del chat */
 
 /* "trabajando": cuatro puntitos en cuadro que se encienden en orden, con el mismo pulso que Claude Code
    (cds-dot-pulse de Claude Desktop: 1.8 s, de .2857 a 1 de opacidad) */

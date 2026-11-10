@@ -677,6 +677,14 @@ function placeCompact(vis) {
   elWork.style.right = 'auto';
   elWork.style.left = `${Math.round(x)}px`;
   elWork.style.bottom = `${Math.round(8 + 44 * sc)}px`;   // siempre justo arriba de su cabeza
+  // con el chat abierto: solo se esconde si queda debajo del chat (si no estorba, se queda)
+  const grp = document.getElementById('group');
+  let covered = false;
+  if (grp && grp.classList.contains('show') && document.body.classList.contains('shared')) {
+    const a = elWork.getBoundingClientRect(), b = grp.getBoundingClientRect();
+    covered = a.right > b.left - 6 && a.left < b.right + 6 && a.bottom > b.top - 6 && a.top < b.bottom + 6;
+  }
+  if (elWork.classList.contains('covered') !== covered) elWork.classList.toggle('covered', covered);
 }
 let followRaf = 0;
 function followLoop() {
