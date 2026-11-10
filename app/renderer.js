@@ -630,7 +630,7 @@ function waitLoop(now) {
   }
   return now >= waitUntil - 40;
 }
-const tickTimer = setInterval(() => { if (!dead) { tick(); if (elWork.classList.contains('compact')) placeCompact(); } }, 150);
+const tickTimer = setInterval(() => { if (!dead) { tick(); if (elWork.classList.contains('show')) placeCompact(); } }, 150);
 
 // =====================================================================
 //  Pastilla de estado de Claude Code
@@ -648,14 +648,18 @@ function statusVisible() {
   if (!st.hasInfo || talkVisible || leaving) return false;
   return statusFull() || busyNow();
 }
-// barra de tareas: la pastilla sola sigue al Clawd mientras camina
+// barra de tareas: lo de arriba (la pastilla o todo el panel) va centrado sobre el Clawd y lo sigue al caminar;
+// solo se recorre cuando centrado se saldría de la pantalla
 function placeCompact() {
-  if (!isBar() || !elWork.classList.contains('compact')) { elWork.style.left = ''; elWork.style.right = ''; elWork.style.bottom = ''; return; }
-  const w = el.status.offsetWidth || 160;
-  const x = Math.max(0, Math.min(stripW() - w, wander.x + boxW() / 2 - w / 2));
+  if (!isBar() || !elWork.classList.contains('show')) { elWork.style.left = ''; elWork.style.right = ''; elWork.style.bottom = ''; return; }
+  const compact = elWork.classList.contains('compact');
+  const w = compact ? (el.status.offsetWidth || 160) : (elWork.offsetWidth || 420);
+  const rootLeft = root.getBoundingClientRect().left;          // dónde está su franja dentro de la ventana
+  const minX = 6 - rootLeft, maxX = window.innerWidth - rootLeft - w - 6;
+  const x = Math.max(minX, Math.min(maxX, wander.x + boxW() / 2 - w / 2));
   elWork.style.right = 'auto';
   elWork.style.left = `${Math.round(x)}px`;
-  elWork.style.bottom = `${Math.round(8 + 44 * (ident.scale || 1))}px`;   // justo arriba de su cabeza (según su tamaño)
+  elWork.style.bottom = compact ? `${Math.round(8 + 44 * (ident.scale || 1))}px` : '';   // la pastilla, justo arriba de su cabeza
 }
 function flashStatus(ms) {
   statusFlashUntil = Date.now() + ms;
