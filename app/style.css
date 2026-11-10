@@ -501,11 +501,15 @@ body.shared #gfloor { display: block; }
 body.shared #group { z-index: 2; }   /* el chat, encima de los Clawds y de la luz */
 /* la luz de cada Clawd: núcleo intenso al ras del piso que se desvanece hacia arriba y a los lados */
 #gfloor .glow {
-  position: absolute; bottom: 0; transition: left .12s linear, opacity .3s ease;
+  position: absolute; bottom: 0; transition: left .12s linear, opacity .5s ease, height .5s ease;
+  mix-blend-mode: screen; filter: var(--ctint, none);
+}
+/* la luz: núcleo intenso al ras del piso que se desvanece hacia arriba y a los lados */
+#gfloor .glow::before {
+  content: ''; position: absolute; inset: 0;
   background:
     radial-gradient(ellipse 44% 72% at 50% 100%, rgba(255, 150, 100, .62), rgba(235, 115, 70, .24) 45%, rgba(217, 119, 87, 0) 100%),
     radial-gradient(ellipse 49% 34% at 50% 100%, rgba(255, 140, 90, .4), rgba(217, 119, 87, 0) 100%);
-  mix-blend-mode: screen; filter: var(--ctint, none);
 }
 /* la línea de luz sobre el piso */
 #gfloor .glow::after {
@@ -513,6 +517,12 @@ body.shared #group { z-index: 2; }   /* el chat, encima de los Clawds y de la lu
   background: radial-gradient(ellipse 50% 100% at 50% 50%, rgba(255, 225, 200, .95), rgba(255, 140, 90, .55) 55%, rgba(255, 130, 80, 0) 100%);
   filter: blur(.5px);
 }
+/* ocupado: pulsa · dormido: respira despacio (sutil, para no robar la atención) */
+#gfloor .glow[data-state="busy"]::before, #gfloor .glow[data-state="busy"]::after { animation: glow-pulse 1.6s ease-in-out infinite; }
+#gfloor .glow[data-state="sleep"]::before, #gfloor .glow[data-state="sleep"]::after { animation: glow-breathe 6s ease-in-out infinite; }
+@keyframes glow-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
+@keyframes glow-breathe { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { #gfloor .glow::before, #gfloor .glow::after { animation: none !important; } }
 #gfloor.show { opacity: 1; }
 body.shared .clawd.mode-taskbar #strip:hover { background: none; }
 

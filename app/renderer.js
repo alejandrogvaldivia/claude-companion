@@ -1211,7 +1211,9 @@ function destroy() {
   try { if (anim) anim.destroy(); } catch (_) { /* nada */ }
   root.remove();
 }
-return { root, emit: api._emit, destroy, socialOk, hovering: () => hovering || talkHover };
+// su luz: ocupado (trabajando o contestándote) pulsa, dormido respira, si no, quieta
+const glow = () => (busyNow() || chatBusy ? 'busy' : visual === 'nap' ? 'sleep' : 'idle');
+return { root, emit: api._emit, destroy, socialOk, glow, hovering: () => hovering || talkHover };
 } // fin de createClawd
 
 // =====================================================================
@@ -1342,6 +1344,7 @@ api0.init().then((o) => {
   PAGE.mode = o.mode;
   document.body.classList.toggle('shared', PAGE.shared);
   for (const id of o.ids || []) addClawd(id);
+  syncFloor();
 });
 
 // =====================================================================
@@ -1507,17 +1510,22 @@ function placeGlows() {
     const w = Math.round(150 + 190 * s);
     g.style.left = `${Math.round(r.left + r.width * 0.486 - w / 2)}px`;   // centrada en el Clawd
     g.style.width = `${w}px`;
-    g.style.height = `${Math.round(40 + 44 * s)}px`;
-    g.style.opacity = (0.2 + 0.8 * s).toFixed(2);                         // Opus 1 · Sonnet .8 · Haiku .6
+    const full = gFloor.classList.contains('full');                       // con el chat abierto: brillo completo
+    g.style.height = `${Math.round(full ? 40 + 44 * s : 16 + 14 * s)}px`; // si no, uno plano y muy sutil
+    g.style.opacity = ((0.2 + 0.8 * s) * (full ? 1 : 0.32)).toFixed(2);   // Opus 1 · Sonnet .8 · Haiku .6
+    const st = p.glow ? p.glow() : 'idle';
+    if (g.dataset.state !== st) g.dataset.state = st;                     // ocupado: pulsa · dormido: respira
     g.style.setProperty('--ctint', tintOf(petInfo(id)));
   }
   gFloor.querySelectorAll('.glow').forEach((g) => { if (!seen.has(g.dataset.id)) g.remove(); });
 }
 setInterval(() => { if (gFloor.classList.contains('show')) placeGlows(); }, 120);   // lo siguen al caminar
 function syncFloor() {
-  const on = PAGE.shared && PAGE.mode === 'taskbar' && gEl.box.classList.contains('show');
-  if (on) placeGlows();
-  gFloor.classList.toggle('show', on);
+  const bar = PAGE.shared && PAGE.mode === 'taskbar';
+  const on = bar && gEl.box.classList.contains('show');
+  gFloor.classList.toggle('full', on);
+  gFloor.classList.toggle('show', bar);   // en la barra de tareas siempre hay luz (sutil si el chat está cerrado)
+  if (bar) placeGlows();
   document.body.classList.toggle('gopen', on);   // con el chat abierto, las pastillas de arriba se esconden (si no, quedan tras la barra)
 }
 new MutationObserver(syncFloor).observe(gEl.box, { attributes: true, attributeFilter: ['class', 'style'] });
