@@ -24,7 +24,10 @@ const GIFS = {
   'Clawd-RacingCar.gif': 'https://claude.ai/images/clawd/persona/Clawd-RacingCar.gif',
   'Clawd-Dancing.gif': 'https://claude.ai/images/spotlights/claude-code-celebration/Clawd-Dancing.gif',
 };
-const NEEDED = [...Object.keys(GIFS), 'Clawd-Still.png', 'clawd-laptop.json'];
+// animaciones que se sacan de la instalación de Claude Desktop (archivo → nombre del Lottie dentro de su interfaz)
+const LOTTIES = { 'clawd-laptop.json': 'Clawd-Laptop', 'clawd-snooze.json': 'Clawd-Snooze', 'clawd-stretching.json': 'Clawd-Stretching' };
+const STOPPED_GIF = 'Extra-Stopped.gif';             // el Clawd de la pantalla "Stopped / Restart": camina con él
+const NEEDED = [...Object.keys(GIFS), 'Clawd-Still.png', ...Object.keys(LOTTIES), STOPPED_GIF];
 function missingAssets() { return NEEDED.filter((f) => !fs.existsSync(path.join(ASSETS, f))); }
 
 // Claude Desktop guarda su interfaz en resources/ion-dist.asar; ahí viene la animación "Clawd-Laptop".
@@ -40,7 +43,7 @@ function desktopAsars() {
   } catch (_) { /* no está instalado así */ }
   return out.sort().reverse();                       // la versión más nueva primero
 }
-function findLaptopLottie() {
+function findLottie(nm) {
   for (const asar of desktopAsars()) {
     for (const dir of ['assets/v1', 'assets']) {
       let files = [];
@@ -52,9 +55,25 @@ function findLaptopLottie() {
           const st = fs.statSync(full);
           if (st.size < 2000 || st.size > 3e6) continue;
           const txt = fs.readFileSync(full, 'utf8');
-          if (txt.includes('"nm":"Clawd-Laptop"')) return txt;
+          if (txt.includes(`"nm":"${nm}"`)) return txt;
         } catch (_) { /* siguiente */ }
       }
+    }
+  }
+  return null;
+}
+function findStoppedGif() {
+  for (const asar of desktopAsars()) {
+    const dir = path.join(asar, 'assets', 'v1');
+    let files = [];
+    try { files = fs.readdirSync(dir).filter((f) => f.endsWith('.js')); } catch (_) { continue; }
+    for (const f of files) {
+      try {
+        const txt = fs.readFileSync(path.join(dir, f), 'utf8');
+        if (!txt.includes('stopped:"Stopped"')) continue;
+        const m = txt.match(/"([/]assets[/]v1[/][-A-Za-z0-9_]+[.]gif)"/);
+        if (m) return fs.readFileSync(path.join(asar, m[1]));
+      } catch (_) { /* siguiente */ }
     }
   }
   return null;
@@ -90,10 +109,16 @@ async function ensureAssets({ net, BrowserWindow, log }) {
     if (fs.existsSync(path.join(ASSETS, name))) continue;
     try { await download(net, url, path.join(ASSETS, name)); log(`assets: ${name} listo`); } catch (e) { problems.push(String(e.message || e)); }
   }
-  if (!fs.existsSync(path.join(ASSETS, 'clawd-laptop.json'))) {
-    const lot = findLaptopLottie();
-    if (lot) { fs.writeFileSync(path.join(ASSETS, 'clawd-laptop.json'), lot); log('assets: laptop sacada de Claude Desktop'); }
-    else problems.push('No encontré la animación de la laptop: instala o abre Claude Desktop y vuelve a abrir Claude Companion.');
+  for (const [file, nm] of Object.entries(LOTTIES)) {
+    if (fs.existsSync(path.join(ASSETS, file))) continue;
+    const lot = findLottie(nm);
+    if (lot) { fs.writeFileSync(path.join(ASSETS, file), lot); log(`assets: ${nm} sacada de Claude Desktop`); }
+    else problems.push(`No encontré la animación ${nm}: instala o abre Claude Desktop y vuelve a abrir Claude Companion.`);
+  }
+  if (!fs.existsSync(path.join(ASSETS, STOPPED_GIF))) {
+    const gif = findStoppedGif();
+    if (gif) { fs.writeFileSync(path.join(ASSETS, STOPPED_GIF), gif); log('assets: Stopped sacada de Claude Desktop'); }
+    else problems.push('No encontré la animación para caminar (Stopped): instala o abre Claude Desktop y vuelve a abrir Claude Companion.');
   }
   if (!fs.existsSync(path.join(ASSETS, 'Clawd-Still.png')) && fs.existsSync(path.join(ASSETS, 'Clawd-Waving.gif'))) {
     try { await makeStill(BrowserWindow); log('assets: pose quieta lista'); } catch (e) { problems.push('pose quieta: ' + e); }

@@ -7,7 +7,7 @@ const api = petApi(ID);
 const $ = (id) => root.querySelector('#' + id);
 let dead = false;
 const el = {
-  pet: $('pet'), gif: $('gif'), gif2: $('gif2'), lot: $('lottie'), fx: $('fx'), strip: $('strip'),
+  pet: $('pet'), gif: $('gif'), gif2: $('gif2'), lot: $('lottie'), lotSnooze: $('lottie-snooze'), lotStretch: $('lottie-stretch'), fx: $('fx'), strip: $('strip'),
   status: $('status'), dot: $('dot'), title: $('title'), sub: $('sub'), extra: $('extra'),
   talk: $('talk'), thread: $('thread'),
   ask: $('ask'), input: $('input'), send: $('btnSend'),
@@ -25,9 +25,10 @@ const ART = {
   cloudOnce: api0.assetUrl('Clawd-Cloud-once.gif'),
   lurking: api0.assetUrl('Clawd-Lurking.gif'),
   racing: api0.assetUrl('Clawd-RacingCar.gif'),
+  walk: api0.assetUrl('Extra-Stopped.gif'),          // caminando (el Clawd de la pantalla "Stopped")
 };
 // duración de una vuelta de cada GIF (para no cortarlos a la mitad)
-const LOOP_MS = { waving: 1410, dancing: 3330, cloudOnce: 5160, lurking: 5580, racing: 4010 };
+const LOOP_MS = { waving: 1410, dancing: 3330, cloudOnce: 5160, lurking: 5580, racing: 4010, stretching: 6100 };
 const ONCE_MS = { ...LOOP_MS };
 
 // Rato libre: animaciones al azar con ~5 s de pausa. En la barra de tareas también pasea.
@@ -37,6 +38,7 @@ const IDLE_POOL = [
   { name: 'cloudOnce', w: 3 },
   { name: 'racing', w: 3 },
   { name: 'dancing', w: 2 },
+  { name: 'stretching', w: 2 },
 ];
 const IDLE_GAP_MS = [5000, 7000];
 let DEEP_SLEEP_MS = 1 * 60 * 1000;         // tras 1 min sin nada se queda dormido (configurable)
@@ -46,8 +48,12 @@ const BAR_HOVER_MS = 350;                   // barra de tareas: espera antes de 
 const NC = $('nap');                        // lienzo de pixel art: dormido y caminando
 const IMG = [el.gif, el.gif2];
 let front = null;
+let zTop = 1;
 function fadeTo(layer) {
-  for (const L of [el.gif, el.gif2, el.lot, NC]) L.classList.toggle('layer-on', L === layer);
+  if (layer === front && layer.classList.contains('layer-on')) return;
+  if (zTop > 50000) { zTop = 1; for (const L of [el.gif, el.gif2, el.lot, el.lotSnooze, el.lotStretch, NC]) L.style.zIndex = ''; }
+  layer.style.zIndex = ++zTop;               // la nueva queda arriba mientras aparece
+  for (const L of [el.gif, el.gif2, el.lot, el.lotSnooze, el.lotStretch, NC]) L.classList.toggle('layer-on', L === layer);
   front = layer;
 }
 
@@ -80,6 +86,38 @@ try {
   });
 } catch (e) { console.error('lottie', e); }
 
+// ---- Snooze (dormido, en bucle) y Stretching (se estira, una vez): los Lottie oficiales, igual que la laptop ----
+function makeLot(container, file, loop) {
+  try {
+    return lottie.loadAnimation({
+      container, renderer: 'svg', loop, autoplay: false,
+      animationData: api.lottieAnim(file),
+      rendererSettings: { preserveAspectRatio: 'xMidYMid meet' },
+    });
+  } catch (e) { console.error('lottie ' + file, e); return null; }
+}
+const snoozeAnim = makeLot(el.lotSnooze, 'clawd-snooze.json', true);
+const stretchAnim = makeLot(el.lotStretch, 'clawd-stretching.json', false);
+// Snooze: los cuadros 0-9 son "se acomoda para dormir" (una sola vez) y del 10 al 54 ya duerme: solo eso se repite,
+// si no, cada vuelta parecía que despertaba y se volvía a dormir
+const SNOOZE = { intro: [0, 10], loop: [10, 55] };
+let snoozeState = 'off';
+if (snoozeAnim) snoozeAnim.addEventListener('complete', () => {
+  if (snoozeState !== 'intro') return;
+  snoozeState = 'loop';
+  snoozeAnim.loop = true;
+  snoozeAnim.playSegments(SNOOZE.loop, true);
+});
+function snoozeStart() {
+  snoozeState = 'intro';
+  snoozeAnim.loop = false;
+  snoozeAnim.playSegments(SNOOZE.intro, true);
+}
+function lotsSettle() {              // lo que ya no se ve, se detiene (no gasta)
+  if (snoozeAnim && visual !== 'nap') { snoozeAnim.stop(); snoozeState = 'off'; }
+  if (stretchAnim && visual !== 'stretching') stretchAnim.stop();
+}
+
 function laptopStart() {
   if (!anim) return;
   lapState = 'intro';
@@ -102,6 +140,7 @@ function afterLaptop(fn) {
 let visual = null, visualStart = 0, waitUntil = 0;
 let oneShot = null;              // { name, until, idle, then }
 function show(name, restart) {
+  if ((name === 'nap' && !snoozeAnim) || (name === 'stretching' && !stretchAnim)) name = 'still';   // sin el archivo: quieto
   if (name === visual && !restart) return;
   trace(`${visual || '-'} -> ${name}${lapState !== 'off' ? ' (laptop ' + lapState + ')' : ''}`);
   visual = name;
@@ -113,8 +152,9 @@ function show(name, restart) {
     else anim.play();
     return;
   }
-  if (name === 'nap' || name === 'walk') { procStart(name); fadeTo(NC); return; }
-  if (proc.raf) setTimeout(() => { if (visual !== 'nap' && visual !== 'walk') procHalt(); }, 320);
+  setTimeout(lotsSettle, 340);
+  if (name === 'nap' && snoozeAnim) { fadeTo(el.lotSnooze); snoozeStart(); return; }
+  if (name === 'stretching' && stretchAnim) { fadeTo(el.lotStretch); stretchAnim.goToAndPlay(0, true); return; }
   if (anim && lapState !== 'off') {
     lapState = 'off'; lapAfterOutro = null;
     setTimeout(() => { if (visual !== 'laptop') anim.stop(); }, 320);
@@ -278,7 +318,7 @@ function setHanging(on) {
     el.pet.classList.add('hanging');
     if (anim && lapState !== 'off') anim.pause();
     if (proc.raf) procHalt();
-    for (const L of [el.gif, el.gif2, el.lot, NC]) L.classList.remove('layer-on');
+    for (const L of [el.gif, el.gif2, el.lot, el.lotSnooze, el.lotStretch, NC]) L.classList.remove('layer-on');
     fitCanvas(HC);
     HC.style.display = 'block';
     setFx('', '');
@@ -306,108 +346,20 @@ const nctx = NC.getContext('2d');
 const nrect = (x, y, w, h) => rectOn(nctx, NC, x, y, w, h);
 const proc = { kind: null, raf: 0, t0: 0, wakeAt: 0, then: null };
 
-// "z" en pixel art: blancas con orilla de tinta, cuadrito por cuadrito
-const ZPAT = {
-  4: ['####', '..#.', '.#..', '####'],
-  5: ['#####', '...#.', '..#..', '.#...', '#####'],
-  6: ['######', '....#.', '...#..', '..#...', '.#....', '######'],
-};
-function pixelZ(x0, y0, n, px, alpha) {
-  const pat = ZPAT[n];
-  nctx.globalAlpha = alpha;
-  // sombrita de un pixel (se ve en fondos claros) y la letra blanca encima (se ve en oscuros)
-  nctx.fillStyle = HANG.ink;
-  pat.forEach((row, r) => [...row].forEach((ch, c) => { if (ch === '#') nrect(x0 + (c + 1) * px, y0 + (r + 1) * px, px, px); }));
-  nctx.fillStyle = '#FFFFFF';
-  pat.forEach((row, r) => [...row].forEach((ch, c) => { if (ch === '#') nrect(x0 + c * px, y0 + r * px, px, px); }));
-  nctx.globalAlpha = 1;
-}
-
-function drawNap(now) {
-  const t = (now - proc.t0) / 1000;
-  let s = easeInOut(Math.min(1, t / 1.4));                 // 0 despierto → 1 dormido
-  let woke = false;
-  if (proc.wakeAt) {
-    const w = Math.min(1, (now - proc.wakeAt) / 380);
-    s *= 1 - easeInOut(w);
-    woke = w >= 1;
-  }
-  const C = HANG.cell, ox = HANG.ox, oy = HANG.oy;
-  const breath = ((1 - Math.cos((t * Math.PI * 2) / 3.6)) / 2) * s;
-  const b = breath * C * 0.3;
-  nctx.clearRect(0, 0, NC.width, NC.height);
-  nctx.fillStyle = HANG.body;
-  for (const c of [2, 4, 7, 9]) nrect(ox + c * C, oy + 6 * C, C, 2 * C);
-  nrect(ox + 2 * C, oy + b, 8 * C, 6 * C - b);
-  const ay = oy + (2 + 1 * s) * C + b * 0.8;               // bracitos cuadrados que bajan una celda
-  nrect(ox, ay, 2 * C, 2 * C);
-  nrect(ox + 10 * C, ay, 2 * C, 2 * C);
-  const eh = C * (1 - 0.66 * s);
-  const ey = oy + C + (C - eh) * 0.8 + b * 0.9;
-  nctx.fillStyle = HANG.eye;
-  nrect(ox + 3 * C, ey, C, eh);
-  nrect(ox + 8 * C, ey, C, eh);
-  // zzz que suben en saltitos de pixel desde su cabeza
-  if (s > 0.85 && !proc.wakeAt) {
-    // en la barra de tareas son 2 y más gorditas para que se lean a tamaño mini
-    const px = isBar() ? 15 : 9;
-    const sizes = isBar() ? [4, 5] : [4, 5, 6];
-    const cycle = 2.7, rise = isBar() ? 150 : 170, steps = 10;
-    sizes.forEach((n, i) => {
-      const p = ((t + (i * cycle) / sizes.length) % cycle) / cycle;
-      const step = Math.floor(p * steps);
-      const x = ox + 9.6 * C + step * 5;
-      const y = oy - n * px - step * (rise / steps);
-      const a = p < 0.06 ? 0.5 : p < 0.7 ? 1 : p < 0.85 ? 0.6 : 0.3;
-      pixelZ(x, y, n, px, a);
-    });
-  }
-  if (woke) {
-    proc.raf = 0;
-    const then = proc.then; proc.then = null; proc.wakeAt = 0;
-    if (then) then();
-    return;
-  }
-  proc.raf = requestAnimationFrame(drawNap);
-}
-
-// caminando: pasos alternados, sube un poquito con cada paso y mira hacia donde va
-function drawWalk(now) {
-  const t = (now - proc.t0) / 1000;
-  const C = HANG.cell, ox = HANG.ox, oy = HANG.oy;
-  const ph = (t * Math.PI * 2) / 0.52;
-  const bob = Math.abs(Math.sin(ph)) * 0.16 * C;
-  const liftA = Math.max(0, Math.sin(ph)), liftB = Math.max(0, -Math.sin(ph));
-  const dir = walkDir || 1;
-  nctx.clearRect(0, 0, NC.width, NC.height);
-  nctx.fillStyle = HANG.body;
-  [[2, liftA], [7, liftA], [4, liftB], [9, liftB]].forEach(([c, l]) => {
-    const top = oy + 6 * C - bob;
-    const bottom = oy + 8 * C - l * 0.55 * C;
-    nrect(ox + c * C, top, C, bottom - top);
-  });
-  nrect(ox + 2 * C, oy - bob, 8 * C, 6 * C);
-  const sw = Math.sin(ph) * 0.22 * C;
-  nrect(ox, oy + 2 * C - bob + sw, 2 * C, 2 * C);
-  nrect(ox + 10 * C, oy + 2 * C - bob - sw, 2 * C, 2 * C);
-  nctx.fillStyle = HANG.eye;
-  const look = dir * 0.3 * C;
-  nrect(ox + 3 * C + look, oy + C - bob, C, C);
-  nrect(ox + 8 * C + look, oy + C - bob, C, C);
-  proc.raf = requestAnimationFrame(drawWalk);
-}
-function procStart(kind) {
-  cancelAnimationFrame(proc.raf);
-  fitCanvas(NC);
-  proc.kind = kind; proc.t0 = performance.now(); proc.wakeAt = 0; proc.then = null;
-  proc.raf = requestAnimationFrame(kind === 'nap' ? drawNap : drawWalk);
-}
+// dormido: Snooze (Lottie oficial). Al despertar se funde ~0.4 s y sigue lo que toque
+const nap = { waking: false, then: null };
 function napWake(then) {
-  if (!proc.raf || proc.kind !== 'nap') { if (then) then(); return; }
-  proc.then = then;
-  if (!proc.wakeAt) proc.wakeAt = performance.now();
+  if (visual !== 'nap') { if (then) then(); return; }
+  nap.then = then;
+  if (nap.waking) return;
+  nap.waking = true;
+  setTimeout(() => {
+    nap.waking = false;
+    const f = nap.then; nap.then = null;
+    if (f) f();
+  }, 380);
 }
-function procHalt() { cancelAnimationFrame(proc.raf); proc.raf = 0; proc.wakeAt = 0; proc.then = null; }
+function procHalt() { cancelAnimationFrame(proc.raf); proc.raf = 0; }
 
 // =====================================================================
 //  Caminar (barra de tareas: dentro de su franja · escritorio: entrada)
@@ -632,7 +584,7 @@ api.on('bye', (d) => {
   hideConvo();
   oneShot = null;
   el.pet.classList.remove('sleeping');
-  const wave = () => playOnce('waving', LOOP_MS.waving * 2, { then: () => { el.pet.classList.add('gone'); } });
+  const wave = () => playOnce('waving', LOOP_MS.waving * 2, { then: () => { poofOut(); } });
   if (visual === 'nap') napWake(() => { visual = null; wave(); });
   else afterLaptop(wave);
 });
@@ -737,7 +689,9 @@ function tick() {
   }
 
   if (visual === 'nap' && v !== 'nap') {
-    napWake(() => { visual = null; tick(); });
+    // lo despertó el cursor (quiere platicar): se estira antes de atenderte
+    if (hovering || talkHover) napWake(() => { visual = null; playOnce('stretching', ONCE_MS.stretching, { idle: true }); });
+    else napWake(() => { visual = null; tick(); });
     return;
   }
   if (visual === 'laptop' && v !== 'laptop' && lapState !== 'off') {
@@ -1355,7 +1309,7 @@ function destroy() {
   dead = true;
   clearInterval(tickTimer);
   cancelAnimationFrame(proc.raf); cancelAnimationFrame(hang.raf); cancelAnimationFrame(wander.raf);
-  try { if (anim) anim.destroy(); } catch (_) { /* nada */ }
+  try { if (anim) anim.destroy(); if (snoozeAnim) snoozeAnim.destroy(); if (stretchAnim) stretchAnim.destroy(); } catch (_) { /* nada */ }
   root.remove();
 }
 // su luz: ocupado (trabajando o contestándote) pulsa, dormido respira, si no, quieta
@@ -1451,6 +1405,7 @@ function petApi(ID) {
     entranceWalk: () => api0.entranceWalk(ID),
     rename: (name) => api0.rename(ID, name),
     laptopAnim: () => api0.laptopAnim(),
+    lottieAnim: (f) => api0.lottieAnim(f),
   };
 }
 

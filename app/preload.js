@@ -9,6 +9,7 @@ const ASSETS = path.join(process.env.COMPANION_HOME || path.join(os.homedir(), '
 
 // La página puede tener uno o varios Clawds: casi todo lleva el id del Clawd que habla.
 let laptop = null;
+const lots = {};
 contextBridge.exposeInMainWorld('companion', {
   // ---- de la página ----
   init: () => ipcRenderer.invoke('page:init'),
@@ -36,6 +37,10 @@ contextBridge.exposeInMainWorld('companion', {
   openFile: (file) => ipcRenderer.send('file:open', file),       // un archivo que creó un Clawd
   hold: (id, on) => ipcRenderer.send('pet:hold', id, on),        // que se detenga (cursor encima o chat abierto)
   // animación oficial de Clawd con su laptop (la de la pantalla de "nuevo chat"); se lee una vez
+  lottieAnim: (file) => {                                         // Snooze y Stretching (se leen una vez)
+    if (!lots[file]) lots[file] = fs.readFileSync(path.join(ASSETS, file), 'utf8');
+    return JSON.parse(lots[file]);
+  },
   laptopAnim: () => {
     if (!laptop) laptop = fs.readFileSync(path.join(ASSETS, 'clawd-laptop.json'), 'utf8');
     return JSON.parse(laptop);

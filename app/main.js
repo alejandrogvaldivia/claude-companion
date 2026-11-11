@@ -580,8 +580,11 @@ function createPetWindow(p, entrance, o = {}) {
     pos = { x: s.x, y: s.y };
     p.spot = { x: s.x, y: s.y };
     if (isBar()) p.homeX = s.x;
-    if (entrance) {
-      // se asoma desde la orilla de la pantalla más cercana a su lugar y luego camina hasta ahí
+    if (entrance && !SHOT) {
+      // igual que los ayudantes: aparece de golpe en su lugar, en una nube de humo, y ya se pone a trabajar
+      p.poofIn = true;
+    } else if (entrance) {
+      // (solo capturas de prueba) se asoma desde la orilla de la pantalla más cercana a su lugar y luego camina hasta ahí
       const wa = isBar() ? (() => { const b = screen.getPrimaryDisplay().bounds; return { x: b.x, y: b.y, width: b.width, height: b.height }; })()
         : screen.getDisplayMatching({ x: s.x, y: s.y, width: w, height: h }).workArea;
       const petX = s.x + petOff(p, s.side);
@@ -669,7 +672,7 @@ function byePet(p, why) {
   log(`Clawd #${p.id} se despide${why ? ` (${why})` : ''}`);
   p.send('bye', p.helper ? { poof: true } : null);          // los ayudantes se van como llegaron: en humo
   clearTimeout(p.byeTimer);
-  p.byeTimer = setTimeout(() => destroyPet(p), p.helper ? 1400 : 3400);
+  p.byeTimer = setTimeout(() => destroyPet(p), p.helper ? 1400 : 4400);
   if (wasLead) for (const q of livePets()) sendIdentity(q, true);   // el chat pasa al siguiente
 }
 

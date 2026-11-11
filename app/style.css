@@ -23,11 +23,12 @@ html, body {
    los pies fijos en el piso; el color es un filtro sobre los sprites originales (no los toca) */
 #body {
   position: absolute; inset: 0;
+  isolation: isolate;                         /* sus capas suben de z-index sin salirse de su cuerpo (el humo y los globos quedan encima) */
   transform-origin: 48.6% 100%;
   scale: var(--s, 1);
   transition: scale .55s cubic-bezier(.3, 1.35, .5, 1);
 }
-#body > img, #body > #lottie, #body > canvas { filter: var(--tint, none); }
+#body > img, #body > #lottie, #body > #lottie-snooze, #body > #lottie-stretch, #body > canvas { filter: var(--tint, none); }
 #body.hop { animation: hop .55s cubic-bezier(.3, .7, .4, 1); }
 #body.hop-big { animation: hop-big .9s cubic-bezier(.3, .7, .4, 1); }
 @keyframes hop { 0%, 100% { translate: 0 0; } 45% { translate: 0 -24%; } }
@@ -59,14 +60,17 @@ html, body {
 #pet.perch .layer-on { animation: none !important; }
 #fx.talk { color: #fff; font-size: 19px; text-shadow: 0 0 0 #000, 1px 1px 0 #1f1e1d, -1px -1px 0 #1f1e1d, 1px -1px 0 #1f1e1d, -1px 1px 0 #1f1e1d; animation: bang .9s ease-in-out infinite; }
 #talk, #work, #ask { z-index: 60; }   /* los globos, arriba de las animaciones de todos los Clawds */
-#gif, #gif2, #lottie, #nap, #hang { position: absolute; inset: 0; width: 100%; height: 100%; }
+#gif, #gif2, #lottie, #lottie-snooze, #lottie-stretch, #nap, #hang { position: absolute; inset: 0; width: 100%; height: 100%; }
 #hang { display: none; }
+#hang, #fx, #pethit { z-index: 100000; }   /* siempre arriba de las capas de animación (que suben de z-index al aparecer) */
 #pet.hanging { cursor: grabbing; }
 /* capas que se cruzan con un fundido: ningún cambio de animación es de golpe */
-#gif, #gif2, #lottie, #nap { opacity: 0; transition: opacity .28s ease; }
+/* la capa nueva aparece ENCIMA y la vieja se queda opaca hasta que termina (si las dos bajaran a la vez, el Clawd se vería
+   semitransparente a media transición: ese era el parpadeo) */
+#gif, #gif2, #lottie, #lottie-snooze, #lottie-stretch, #nap { opacity: 0; transition: opacity 0s linear .3s; }
 #gif, #gif2 { image-rendering: pixelated; }
-#gif.layer-on, #gif2.layer-on, #lottie.layer-on, #nap.layer-on { opacity: 1; }
-#lottie svg { width: 100% !important; height: 100% !important; }
+#gif.layer-on, #gif2.layer-on, #lottie.layer-on, #lottie-snooze.layer-on, #lottie-stretch.layer-on, #nap.layer-on { opacity: 1; transition: opacity .28s ease; }
+#lottie svg, #lottie-snooze svg, #lottie-stretch svg { width: 100% !important; height: 100% !important; }
 #pet.bob .layer-on { animation: bob 2.6s ease-in-out infinite; }
 @keyframes bob { 50% { transform: translateY(-3px); } }
 
