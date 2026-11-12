@@ -12,8 +12,6 @@ const el = {
   talk: $('talk'), thread: $('thread'),
   ask: $('ask'), input: $('input'), send: $('btnSend'),
 };
-let MODE = 'desktop';                       // desktop | taskbar
-const isBar = () => MODE === 'taskbar';
 
 // =====================================================================
 //  Animaciones oficiales de Clawd
@@ -153,6 +151,8 @@ function show(name, restart) {
     return;
   }
   setTimeout(lotsSettle, 340);
+  if (name === 'dizzy') { stopWalk(); procStart(); fadeTo(NC); return; }
+  if (proc.raf) setTimeout(() => { if (visual !== 'dizzy') procHalt(); }, 320);
   if (name === 'nap' && snoozeAnim) { fadeTo(el.lotSnooze); snoozeStart(); return; }
   if (name === 'stretching' && stretchAnim) { fadeTo(el.lotStretch); stretchAnim.goToAndPlay(0, true); return; }
   if (anim && lapState !== 'off') {
@@ -228,8 +228,82 @@ function rectOn(ctx, c, x, y, w, h) {
 const HC = $('hang');
 const hctx = HC.getContext('2d');
 const hrect = (x, y, w, h) => rectOn(hctx, HC, x, y, w, h);
-const hang = { on: false, raf: 0, t0: 0, last: 0, releaseAt: 0, liftAtRelease: 1, parts: [], spawn: 0 };
+const hang = { on: false, raf: 0, t0: 0, last: 0, releaseAt: 0, liftAtRelease: 1, parts: [], spawn: 0, chute: false, chuteAt: 0, chuteClose: 0 };
 const liftAt = (now) => easeOutBack(Math.min(1, (now - hang.t0) / 320));
+
+// ---------- mareo (al agitarlo mucho) y paracaídas (al soltarlo desde arriba) ----------
+const OV = $('over');
+const octx = OV.getContext('2d');
+const orect = (x, y, w, h) => rectOn(octx, OV, x, y, w, h);
+const dz = { until: 0 };                                      // mareado hasta (performance.now)
+const dizzyOn = (now) => now < dz.until;
+const RING = [[0, 0], [1, 0], [2, 0], [2, 1], [2, 2], [1, 2], [0, 2], [0, 1]];
+// ojos en espiral: el blanco del ojo (cuadrado de 3x3) con un arco negro que da vueltas (un ojo al derecho y el otro al revés)
+function drawSpiralEyes(ctx, rect, ox, oy, t) {
+  const C = HANG.cell, step = Math.floor(t * 14);
+  for (const [ex, dir] of [[2, 1], [7, -1]]) {
+    const start = (((dir * step) % 8) + 8) % 8;
+    ctx.fillStyle = '#FFF3E0';
+    rect(ox + ex * C, oy, 3 * C, 3 * C);
+    ctx.fillStyle = HANG.eye;
+    for (let j = 0; j < 4; j++) { const [cx, cy] = RING[(start + j) % 8]; rect(ox + (ex + cx) * C, oy + cy * C, C, C); }
+    rect(ox + (ex + 1) * C, oy + C, C, C);
+  }
+}
+// paracaídas en el estilo de Clawd: la misma cuadrícula de pixeles, colores planos (naranja y crema; más oscuros en las orillas y en
+// la hilera de abajo, para que se vea redondo) y sin contornos; las cuerdas son una línea de pixeles. Va en el lienzo de Clawd,
+// así toma su color. La cúpula es media esfera: sus tiras (los gajos) dan vueltas y se juntan arriba.
+const CHUTE_R = 8, CHUTE_H = 6;                                    // radio (en pixeles) y filas de la cúpula
+function drawChute(ctx, rect, ox, oy, t, now) {
+  if (!hang.chute) return;
+  const k = hang.chuteClose ? Math.max(0, 1 - (now - hang.chuteClose) / 320) : easeOutBack(Math.min(1, (now - hang.chuteAt) / 280));
+  if (k < 0.05) return;
+  const C = HANG.cell, U = C * k;                                   // se abre creciendo desde su cabeza
+  const cx = ox + 6 * C + Math.sin(t * 2.2) * 8;
+  const bottom = oy - 46 * k;                                       // el borde de abajo de la cúpula
+  const spin = t * 1.8;                                             // las tiras dan vueltas
+  for (let row = 0; row < CHUTE_H; row++) {
+    const rr = CHUTE_H - 1 - row;                                   // 0 = la fila de abajo
+    const half = Math.max(2, Math.round(CHUTE_R * Math.sqrt(1 - Math.pow((rr + 0.5) / CHUTE_H, 2))));
+    const y = bottom - (CHUTE_H - row) * U;
+    for (let c = -half; c < half; c++) {
+      const u = (c + 0.5) / half;                                   // -1 (orilla izquierda) .. 1 (derecha), en esta fila
+      const band = Math.floor((Math.asin(u) + spin) / (Math.PI / 4));    // gajos de una esfera: se juntan hacia las orillas
+      const light = (((band % 2) + 2) % 2) === 0;
+      const dark = Math.abs(u) > 0.8 || rr === 0;                   // orillas y borde de abajo: más oscuro
+      ctx.fillStyle = light ? (dark ? '#E3D2BE' : '#F5E9DA') : (dark ? '#BF6B4D' : '#D97757');
+      rect(cx + c * U, y, U, U);
+    }
+  }
+  // cuerdas: una línea de pixeles desde cada orilla de la cúpula hasta cada mano
+  ctx.fillStyle = '#BF6B4D';
+  const sq = 6;
+  for (const [x0, x1] of [[cx - (CHUTE_R - 0.5) * U, ox + C], [cx + (CHUTE_R - 0.5) * U, ox + 11 * C]]) {
+    const y0 = bottom, y1 = oy - 0.1 * C, steps = 14;
+    for (let i = 0; i <= steps; i++) rect(x0 + (x1 - x0) * (i / steps) - sq / 2, y0 + (y1 - y0) * (i / steps) - sq / 2, sq, sq);
+  }
+}
+
+function drawOverlay(ox, oy, t, now) {
+  octx.clearRect(0, 0, OV.width, OV.height);
+  const C = HANG.cell;
+  // estrellitas que giran alrededor de su cabeza
+  if (dizzyOn(now)) {
+    for (let i = 0; i < 4; i++) {
+      const a = t * 4.2 + (i * Math.PI * 2) / 4;
+      const cx = ox + 6 * C + Math.cos(a) * 5.2 * C;
+      const cy = oy - 0.7 * C + Math.sin(a) * 1.3 * C;
+      const u = C * (0.34 + 0.08 * Math.sin(a));                  // las de adelante, un poco más grandes
+      octx.globalAlpha = Math.sin(a) < 0 ? 0.75 : 1;
+      octx.fillStyle = '#FFD84D';
+      orect(cx - u, cy - u * 3, u * 2, u * 6);
+      orect(cx - u * 3, cy - u, u * 6, u * 2);
+      octx.fillStyle = '#FFF3B0';
+      orect(cx - u, cy - u, u * 2, u * 2);
+    }
+    octx.globalAlpha = 1;
+  }
+}
 
 function drawHang(now) {
   const t = (now - hang.t0) / 1000;
@@ -260,7 +334,7 @@ function drawHang(now) {
   hctx.ellipse((HANG.ox + 6 * C) * k, (HANG.oy + 8.3 * C) * k, (4.4 - 1.5 * a1) * C * k, 0.42 * C * k, 0, 0, Math.PI * 2);
   hctx.fill();
 
-  if (!hang.releaseAt) {
+  if (!hang.releaseAt && !hang.chute) {
     hang.spawn += dt * 18 * a1;
     while (hang.spawn >= 1) {
       hang.spawn -= 1;
@@ -283,6 +357,7 @@ function drawHang(now) {
   }
   hctx.globalAlpha = 1;
 
+  drawChute(hctx, hrect, ox, oy, t, now);
   hctx.fillStyle = HANG.body;
   for (const c of [2, 4, 7, 9]) {
     for (let r = 0; r < 3; r++) {
@@ -299,10 +374,23 @@ function drawHang(now) {
   const open = bp < 1 ? Math.abs(1 - 2 * bp) : 1;
   const eh = C * Math.max(0.18, open);
   hctx.fillStyle = HANG.eye;
-  hrect(ox + 3 * C, oy + C + (C - eh) / 2, C, eh);
-  hrect(ox + 8 * C, oy + C + (C - eh) / 2, C, eh);
+  if (dizzyOn(now)) drawSpiralEyes(hctx, hrect, ox, oy, t);
+  else {
+    hrect(ox + 3 * C, oy + C + (C - eh) / 2, C, eh);
+    hrect(ox + 8 * C, oy + C + (C - eh) / 2, C, eh);
+  }
+  drawOverlay(ox, oy, t, now);
+  // el paracaídas ya se cerró (aterrizó): ahora sí lo suelta
+  if (hang.chute && hang.chuteClose && now - hang.chuteClose > 330) { hang.chute = false; hang.chuteClose = 0; root.classList.remove('chute'); setHanging(false); }
 
   hang.raf = requestAnimationFrame(drawHang);
+}
+// mientras lo mueven (arrastrado o en paracaídas): su brillo y los chats desaparecen hasta que vuelva a la barra
+function setMoving(on) {
+  if (on) PAGE.moving.add(ID); else PAGE.moving.delete(ID);
+  root.classList.toggle('moving', on);
+  document.body.classList.toggle('pet-moving', PAGE.moving.size > 0);
+  if (PAGE.shared && typeof placeGlows === 'function') placeGlows();
 }
 function setHanging(on) {
   const now = performance.now();
@@ -315,11 +403,13 @@ function setHanging(on) {
       hang.on = true; hang.t0 = now; hang.last = 0; hang.parts = []; hang.spawn = 0;
     }
     stopWalk();
+    setMoving(true);
     el.pet.classList.add('hanging');
     if (anim && lapState !== 'off') anim.pause();
     if (proc.raf) procHalt();
     for (const L of [el.gif, el.gif2, el.lot, el.lotSnooze, el.lotStretch, NC]) L.classList.remove('layer-on');
     fitCanvas(HC);
+    fitCanvas(OV);
     HC.style.display = 'block';
     setFx('', '');
     cancelAnimationFrame(hang.raf);
@@ -331,15 +421,33 @@ function setHanging(on) {
 }
 function finishHang() {
   cancelAnimationFrame(hang.raf);
-  hang.on = false; hang.releaseAt = 0; hang.parts = [];
+  hang.on = false; hang.releaseAt = 0; hang.parts = []; hang.chute = false; hang.chuteClose = 0;
+  root.classList.remove('chute');
+  setMoving(false);
   el.pet.classList.remove('hanging');
   HC.style.display = 'none';
+  octx.clearRect(0, 0, OV.width, OV.height);
   oneShot = null;
   if (visual === 'laptop' && lapState !== 'off') { fadeTo(el.lot); anim.play(); }
   else { visual = null; }
+  if (dizzyOn(performance.now())) { show('dizzy', true); return; }     // sigue mareado un ratito aunque ya lo soltaron
   tick();
 }
-api.on('drag:moving', (on) => setHanging(!!on));
+api.on('drag:moving', (on) => { if (on) { hang.chute = false; hang.chuteClose = 0; root.classList.remove('chute'); } setHanging(!!on); });
+// lo soltaron arriba: cae con paracaídas (el proceso principal lo baja); al aterrizar el paracaídas se cierra
+api.on('chute', (d) => {
+  const now = performance.now();
+  if (d && d.on) {
+    hang.chute = true; hang.chuteAt = now; hang.chuteClose = 0;
+    root.classList.add('chute');                           // el aviso de estado se esconde: taparía el paracaídas
+    if (!hang.on || hang.releaseAt) setHanging(true);
+  } else if (hang.chute && !hang.chuteClose) hang.chuteClose = now;
+});
+// lo agitaron mucho: se marea (espirales en los ojos y estrellitas girando)
+api.on('dizzy', (d) => {
+  dz.until = Math.max(dz.until, performance.now() + (d && d.ms ? d.ms : 3000));
+  if (!hang.on && visual !== 'dizzy' && !leaving) { oneShot = null; setFx('', ''); show('dizzy', true); }
+});
 
 // ---------- lienzo propio: dormido y caminando ----------
 const nctx = NC.getContext('2d');
@@ -360,14 +468,37 @@ function napWake(then) {
   }, 380);
 }
 function procHalt() { cancelAnimationFrame(proc.raf); proc.raf = 0; }
+function procStart() {
+  cancelAnimationFrame(proc.raf);
+  fitCanvas(NC); fitCanvas(OV);
+  proc.t0 = performance.now();
+  proc.raf = requestAnimationFrame(drawDizzy);
+}
+// de pie y mareado: se tambalea, con los ojos en espiral y las estrellitas girando en su cabeza
+function drawDizzy(now) {
+  if (!dizzyOn(now) && now - dz.until > 150) { procHalt(); octx.clearRect(0, 0, OV.width, OV.height); visual = null; tick(); return; }
+  const t = (now - proc.t0) / 1000;
+  const C = HANG.cell;
+  const sw = Math.sin(t * 5);
+  const ox = HANG.ox + sw * 7, oy = HANG.oy + Math.abs(sw) * 2;
+  nctx.clearRect(0, 0, NC.width, NC.height);
+  nctx.fillStyle = HANG.body;
+  for (const c of [2, 4, 7, 9]) nrect(ox + c * C, oy + 6 * C, C, 2 * C);
+  nrect(ox + 2 * C, oy, 8 * C, 6 * C);
+  nrect(ox, oy + 2 * C + sw * 0.3 * C, 2 * C, 2 * C);
+  nrect(ox + 10 * C, oy + 2 * C - sw * 0.3 * C, 2 * C, 2 * C);
+  drawSpiralEyes(nctx, nrect, ox, oy, t);
+  drawOverlay(ox, oy, t, now);
+  proc.raf = requestAnimationFrame(drawDizzy);
+}
 
 // =====================================================================
 //  Caminar (barra de tareas: dentro de su franja · escritorio: entrada)
 // =====================================================================
 const wander = { x: 0, target: null, speed: 40, last: 0, raf: 0, onArrive: null };
 const boxW = () => el.pet.offsetWidth;
-const stripW = () => root.offsetWidth || (isBar() ? 430 : 520);   // el ancho de SU escenario (no de la ventana)
-function setPetX(x) { wander.x = x; if (isBar()) el.pet.style.transform = `translateX(${Math.round(x)}px)`; }
+const stripW = () => root.offsetWidth || 430;   // el ancho de SU escenario (no de la ventana)
+function setPetX(x) { wander.x = x; el.pet.style.transform = `translateX(${Math.round(x)}px)`; }
 function walkTo(x, speed, onArrive) {
   wander.target = x; wander.speed = speed || 40; wander.onArrive = onArrive || null;
   walkDir = Math.sign(x - wander.x) || 1;
@@ -424,7 +555,7 @@ function runEntrance(e) {
   el.pet.classList.add('entering');
   setFx('', '');
   if (e.mode === 'poof') { poofIn(); return; }
-  if (e.mode === 'desktop' || e.mode === 'walk') {
+  if (e.mode === 'walk') {
     // se asoma desde la orilla más cercana a donde estaba y luego camina hasta su lugar
     el.pet.classList.toggle('mirror', e.from === 'right');
     lurkFrom(e.from);
@@ -580,7 +711,7 @@ api.on('bye', (d) => {
   endEntrance();
   stopWalk();
   // si venía entrando (medio fuera de la vista), primero se pone donde se vea
-  if (isBar()) setPetX(Math.max(0, Math.min(stripW() - boxW(), wander.x)));
+  setPetX(Math.max(0, Math.min(stripW() - boxW(), wander.x)));
   hideConvo();
   oneShot = null;
   el.pet.classList.remove('sleeping');
@@ -604,7 +735,7 @@ function idleVisual(now, mode) {
   }
   if (!convoOpen() && now >= idleNextAt && !social.busy) {
     // (los paseos ahora los hace el proceso principal, que mueve su ventana y sabe dónde están los demás)
-    if (isBar() && !ident.mainWalk && Math.random() < 0.55) {
+    if (!ident.mainWalk && Math.random() < 0.55) {
       const maxX = stripW() - boxW();
       let tx = Math.random() * maxX;
       if (Math.abs(tx - wander.x) < 40) tx = wander.x > maxX / 2 ? tx * 0.4 : maxX - tx * 0.4;
@@ -623,6 +754,7 @@ function idleVisual(now, mode) {
 
 function tick() {
   if (hang.on) return;
+  if (visual === 'dizzy' && performance.now() < dz.until + 150) return;      // mareado: no cambia de animación
   const now = Date.now();
   const mode = wantedMode();
   const urgent = mode === 'working' || mode === 'thinking' || mode === 'attention' || mode === 'error';
@@ -741,7 +873,6 @@ const elBody = $('body');
 function petScaleNow() { const v = parseFloat(getComputedStyle(elBody).scale); return Number.isFinite(v) ? v : (ident.scale || 1); }
 function placeCompact(vis) {
   if (vis === undefined) vis = elWork.classList.contains('show');
-  if (!isBar()) { elWork.style.left = ''; elWork.style.right = ''; elWork.style.bottom = ''; return; }
   if (!vis) return;                      // escondido: se queda donde estaba (así, al volver, no brinca)
   const compact = elWork.classList.contains('compact');
   const w = elWork.offsetWidth || (compact ? 160 : 420);   // lo que muestra (pastilla y su lista)
@@ -767,11 +898,11 @@ function placeCompact(vis) {
 let followRaf = 0;
 function followLoop() {
   followRaf = 0;
-  if (dead || !isBar() || !elWork.classList.contains('show')) return;
+  if (dead || !elWork.classList.contains('show')) return;
   placeCompact(true);
   followRaf = requestAnimationFrame(followLoop);
 }
-function startFollow() { if (!followRaf && isBar()) followRaf = requestAnimationFrame(followLoop); }
+function startFollow() { if (!followRaf) followRaf = requestAnimationFrame(followLoop); }
 function flashStatus(ms) {
   statusFlashUntil = Date.now() + ms;
   clearTimeout(statusFlashT);
@@ -906,7 +1037,7 @@ let stripT = null;
 let stripIn = false;
 el.strip.addEventListener('mouseenter', () => {
   stripIn = true;
-  if (isBar() && wander.target !== null) wander.target = wander.x;   // si venía caminando (o entrando), se queda ahí
+  if (wander.target !== null) wander.target = wander.x;   // si venía caminando (o entrando), se queda ahí
   if (PAGE.onHover) PAGE.onHover();
 });
 el.strip.addEventListener('mouseleave', () => { stripIn = false; if (PAGE.onHover) PAGE.onHover(); });
@@ -1172,7 +1303,7 @@ function applyIdentity(d) {
   el.pet.style.setProperty('--tint', f.length ? f.join(' ') : 'none');
   root.style.setProperty('--ctint', f.length ? f.join(' ') : 'none');   // tus globos y su botón de enviar, de su color
   if (ident.sleepMs) DEEP_SLEEP_MS = ident.sleepMs;
-  if (ident.mainWalk && isBar() && wander.target !== null) stopWalk();
+  if (ident.mainWalk && wander.target !== null) stopWalk();
 }
 api.on('identity', applyIdentity);
 // el nombre aparece al pasar el cursor por Clawd
@@ -1268,10 +1399,8 @@ api.on('social', (d) => {
 });
 
 api.getOpts().then((o) => {
-  MODE = o.mode === 'taskbar' ? 'taskbar' : 'desktop';
-  root.classList.toggle('mode-taskbar', isBar());
-  root.classList.toggle('mode-desktop', !isBar());
-  if (isBar()) setPetX(Math.max(0, stripW() - boxW() - 40));
+  root.classList.add('mode-taskbar');
+  setPetX(Math.max(0, stripW() - boxW() - 40));
   if (o.identity) applyIdentity(o.identity);
   if (o.history) restoreHistory(o.history);
   if (o.model) { model = o.model; renderModel(); }
@@ -1314,7 +1443,7 @@ function destroy() {
   root.remove();
 }
 // su luz: ocupado (trabajando o contestándote) pulsa, dormido respira, si no, quieta
-const glow = () => (poofing ? 'hidden' : st.mode === 'attention' && !leaving ? 'attn' : busyNow() || chatBusy ? 'busy' : visual === 'nap' ? 'sleep' : 'idle');
+const glow = () => (poofing || hang.on ? 'hidden' : st.mode === 'attention' && !leaving ? 'attn' : busyNow() || chatBusy ? 'busy' : visual === 'nap' ? 'sleep' : 'idle');
 return { root, emit: api._emit, destroy, socialOk, glow, stripIn: () => stripIn, hovering: () => hovering || talkHover };
 } // fin de createClawd
 
@@ -1324,7 +1453,7 @@ return { root, emit: api._emit, destroy, socialOk, glow, stripIn: () => stripIn,
 const api0 = window.companion;
 // la foto de perfil usa la pose quieta de Clawd (de tu carpeta de datos)
 document.documentElement.style.setProperty('--still-url', `url("${api0.assetUrl('Clawd-Still.png')}")`);
-const PAGE = { shared: false, mode: 'desktop', pets: new Map() };
+const PAGE = { shared: false, pets: new Map(), moving: new Set() };   // moving: los Clawds que van por el aire (arrastrados o cayendo)
 const esc0 = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 // degradado donde se corta lo que se puede scrollear: arriba si hay más arriba, abajo si hay más abajo
 const FADE_SEL = '#thread, #gfeed, .say.open, .gmsg.gsay .gb.open';
@@ -1430,6 +1559,8 @@ function removeClawd(id) {
   const p = PAGE.pets.get(id);
   if (!p) return;
   PAGE.pets.delete(id);
+  PAGE.moving.delete(id);
+  document.body.classList.toggle('pet-moving', PAGE.moving.size > 0);
   p.destroy();
   G.live.delete(id);
   if (G.target === id) G.target = null;
@@ -1446,11 +1577,14 @@ api0.on('pet', (m) => {
 });
 api0.on('page:add', (d) => addClawd(d.id));
 api0.on('page:remove', (d) => removeClawd(d.id));
-api0.on('page:place', (list) => {
+api0.on('page:place', (m) => {
+  const list = Array.isArray(m) ? m : m.list;
+  if (!Array.isArray(m) && m.reset) document.body.classList.add('notrans');      // la ventana cambió de tamaño: se recolocan de golpe, sin deslizarse
   for (const d of list) {
     const p = PAGE.pets.get(d.id);
     if (p) { p.root.style.left = `${d.x}px`; p.root.style.top = `${d.y}px`; }   // (sin transform: así los globos de todos van en una capa arriba de todas las animaciones)
   }
+  if (document.body.classList.contains('notrans')) { void document.body.offsetHeight; requestAnimationFrame(() => requestAnimationFrame(() => document.body.classList.remove('notrans'))); }
 });
 api0.on('page:z', (ids) => ids.forEach((id, i) => { const p = PAGE.pets.get(id); if (p) p.root.querySelector('#pet').style.zIndex = String(i + 1); }));   // quién va delante: solo entre Clawds
 api0.on('page:group', (d) => { Object.assign(G, { pets: d.pets || G.pets, feed: d.feed || G.feed }); if (d.pos) placeGroup(d.pos); applyPending(); renderGroup(); });
@@ -1756,7 +1890,8 @@ setInterval(unstack, 100);
 function placeGlows() {
   const list = [...PAGE.pets.entries()].filter(([, p]) => p.root && p.root.offsetHeight);
   if (!list.length) return;
-  const floor = list[0][1].root.getBoundingClientRect().bottom;
+  const ref = list.find(([id]) => !PAGE.moving.has(id)) || list[0];      // la línea del piso: la de uno que no ande por el aire
+  const floor = ref[1].root.getBoundingClientRect().bottom;
   gFloor.style.left = '0px';
   gFloor.style.width = `${window.innerWidth}px`;
   gFloor.style.top = `${Math.round(floor - (gFloor.offsetHeight || 90))}px`;

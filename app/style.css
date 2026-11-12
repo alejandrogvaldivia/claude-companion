@@ -29,6 +29,7 @@ html, body {
   transition: scale .55s cubic-bezier(.3, 1.35, .5, 1);
 }
 #body > img, #body > #lottie, #body > #lottie-snooze, #body > #lottie-stretch, #body > canvas { filter: var(--tint, none); }
+#body > canvas#over { filter: none; pointer-events: none; }   /* estrellitas y paracaídas: sus colores propios, sin teñir */
 #body.hop { animation: hop .55s cubic-bezier(.3, .7, .4, 1); }
 #body.hop-big { animation: hop-big .9s cubic-bezier(.3, .7, .4, 1); }
 @keyframes hop { 0%, 100% { translate: 0 0; } 45% { translate: 0 -24%; } }
@@ -60,7 +61,7 @@ html, body {
 #pet.perch .layer-on { animation: none !important; }
 #fx.talk { color: #fff; font-size: 19px; text-shadow: 0 0 0 #000, 1px 1px 0 #1f1e1d, -1px -1px 0 #1f1e1d, 1px -1px 0 #1f1e1d, -1px 1px 0 #1f1e1d; animation: bang .9s ease-in-out infinite; }
 #talk, #work, #ask { z-index: 60; }   /* los globos, arriba de las animaciones de todos los Clawds */
-#gif, #gif2, #lottie, #lottie-snooze, #lottie-stretch, #nap, #hang { position: absolute; inset: 0; width: 100%; height: 100%; }
+#gif, #gif2, #lottie, #lottie-snooze, #lottie-stretch, #nap, #hang, #over { position: absolute; inset: 0; width: 100%; height: 100%; }
 #hang { display: none; }
 #hang, #fx, #pethit { z-index: 100000; }   /* siempre arriba de las capas de animación (que suben de z-index al aparecer) */
 #pet.hanging { cursor: grabbing; }
@@ -342,7 +343,8 @@ html, body {
 .clawd { position: absolute; left: 0; top: 0; width: 520px; height: 480px; pointer-events: none; }
 .clawd.mode-taskbar { width: 430px; }
 .clawd #talk, .clawd #strip { pointer-events: auto; }
-body.shared .clawd { transition: left 45ms linear, top .14s ease-out; }   /* sin transform/will-change: no crea capa propia */
+body.shared .clawd { transition: left 45ms linear, top .14s ease-out; }
+body.shared.notrans .clawd { transition: none !important; }   /* la ventana creció o encogió: nadie se desliza */   /* sin transform/will-change: no crea capa propia */
 body.shared .clawd.leaving { transition: none; }
 /* en la ventana compartida la plática va en el chat grupal, no encima de cada uno */
 body.shared .clawd #ask, body.shared .clawd #talk, body.shared .clawd #says { display: none !important; }
@@ -662,3 +664,10 @@ body.shared.bar-follow #group { transition: opacity .35s ease, transform .35s ea
 #gfloor .glow[data-state="attn"] { filter: hue-rotate(32deg) saturate(1.5) brightness(1.3) !important; opacity: 1 !important; }
 #gfloor .glow[data-state="attn"]::before, #gfloor .glow[data-state="attn"]::after { animation: glow-attn .9s ease-in-out infinite; }
 @keyframes glow-attn { 0%, 100% { opacity: 1; } 50% { opacity: .2; } }
+
+/* en paracaídas: el aviso de estado y la lista de tareas se esconden (taparían la cúpula) */
+.clawd.chute #work { opacity: 0 !important; transition: opacity .15s ease; }
+
+/* mientras se mueve un Clawd (arrastrado o en paracaídas): sin chats, avisos ni nombre */
+body.pet-moving #group { opacity: 0 !important; pointer-events: none !important; transition: opacity .12s ease; }
+.clawd.moving #work, .clawd.moving #talk, .clawd.moving #ask, .clawd.moving #says, .clawd.moving #tag { opacity: 0 !important; pointer-events: none !important; transition: opacity .12s ease; }
