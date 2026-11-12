@@ -4,6 +4,8 @@
 //   "F1" / "F0" hay una ventana en pantalla completa en la pantalla principal (un video, un juego…) / ya no.
 //   "A1" / "A0" la barra de tareas está en "ocultar automáticamente" / ya no.
 //   "T<n>/<m>"  (solo con "ocultar automáticamente") cuánto se ve de la barra: n px de m de alto de pantalla.
+// Además mantiene las ventanas de los Clawds siempre encima y sin minimizar (Windows se lo quita al activar otra ventana
+// o con "minimizar todo"; Electron no lo puede volver a poner).
 // Con F1 o A1 los Clawds de la barra de tareas bajan hasta la orilla de la pantalla.
 // Distingue Claude Desktop (carpeta AnthropicClaude o paquete de la Store) de las sesiones de
 // Claude Code, que también se llaman claude.exe. Se cierra solo si la app que lo abrió se cierra.
@@ -85,23 +87,76 @@ class ClaudeWatcher
         catch { return null; }
     }
 
+    [DllImport("user32.dll")] static extern bool EnumWindows(EnumProc p, IntPtr l);
+    [DllImport("user32.dll")] static extern bool IsIconic(IntPtr h);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetWindowText(IntPtr h, StringBuilder s, int n);
+    [DllImport("dwmapi.dll")] static extern int DwmGetWindowAttribute(IntPtr h, int attr, out int v, int size);
+    delegate bool EnumProc(IntPtr h, IntPtr l);
+    [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr h, int cmd);
+    [DllImport("user32.dll")] static extern int GetWindowLong(IntPtr h, int index);
+    [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint flags);
+    [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+    static uint ownerPid = 0;                                   // el proceso de Claude Companion que me abrió (0 = cualquiera con ese título)
+
+    // las ventanas de los Clawds: siempre encima de todo y nunca minimizadas
+    static void KeepOnTop()
+    {
+        try
+        {
+            EnumWindows((h, l) =>
+            {
+                var title = new StringBuilder(64);
+                GetWindowText(h, title, 64);
+                if (title.ToString() != "Claude Companion") return true;
+                uint pid;
+                GetWindowThreadProcessId(h, out pid);
+                if (ownerPid != 0 && pid != ownerPid) return true;
+                if (IsIconic(h)) ShowWindow(h, 4 /* SW_SHOWNOACTIVATE: se restaura sin quitarle el foco a nadie */);
+                if ((GetWindowLong(h, -20 /* GWL_EXSTYLE */) & 0x8 /* WS_EX_TOPMOST */) == 0)
+                    SetWindowPos(h, new IntPtr(-1) /* HWND_TOPMOST */, 0, 0, 0, 0, 0x13 /* sin mover, sin cambiar tamaño, sin activar */);
+                return true;
+            }, IntPtr.Zero);
+        }
+        catch { }
+    }
+
+    // ¿lo que se ve arriba en la pantalla principal es una ventana en pantalla completa (un video, un juego…)?
+    // Se mira la ventana que está más arriba EN ESA PANTALLA, no la que tiene el foco: si el video sigue en pantalla completa
+    // pero haces clic en otra ventana (por ejemplo en otro monitor), los Clawds se quedan abajo.
     static bool Fullscreen()
     {
         try
         {
-            IntPtr h = GetForegroundWindow();
-            if (h == IntPtr.Zero || !IsWindowVisible(h)) return false;
-            var cls = new StringBuilder(64);
-            GetClassName(h, cls, 64);
-            string c = cls.ToString();
-            if (c == "Progman" || c == "WorkerW" || c == "Shell_TrayWnd" || c == "Shell_SecondaryTrayWnd") return false;   // el escritorio y la barra
-            RECT r;
-            if (IsZoomed(h)) return false;            // maximizada no es pantalla completa (con la barra oculta ocupa todo)
-            if (!GetWindowRect(h, out r)) return false;
             var mi = new MONITORINFO(); mi.cbSize = Marshal.SizeOf(typeof(MONITORINFO));
-            if (!GetMonitorInfo(MonitorFromWindow(h, 2), ref mi)) return false;
-            if ((mi.dwFlags & 1) == 0) return false;   // solo la pantalla principal (ahí viven los Clawds)
-            return r.Left <= mi.rcMonitor.Left && r.Top <= mi.rcMonitor.Top && r.Right >= mi.rcMonitor.Right && r.Bottom >= mi.rcMonitor.Bottom;
+            if (!GetMonitorInfo(MonitorFromPoint(new POINT(), 1 /* MONITOR_DEFAULTTOPRIMARY */), ref mi)) return false;
+            RECT m = mi.rcMonitor;
+            bool result = false;
+            EnumWindows((h, l) =>                                  // de arriba hacia abajo en el orden de las ventanas
+            {
+                if (!IsWindowVisible(h) || IsIconic(h)) return true;
+                int cloaked;
+                if (DwmGetWindowAttribute(h, 14 /* DWMWA_CLOAKED */, out cloaked, 4) == 0 && cloaked != 0) return true;   // ventanas "escondidas" de Windows
+                var cls = new StringBuilder(64);
+                GetClassName(h, cls, 64);
+                string c = cls.ToString();
+                if (c == "Progman" || c == "WorkerW" || c == "Shell_TrayWnd" || c == "Shell_SecondaryTrayWnd") return true;   // el escritorio y la barra
+                var title = new StringBuilder(64);
+                GetWindowText(h, title, 64);
+                if (title.ToString() == "Claude Companion") return true;                                                      // los propios Clawds
+                RECT r;
+                if (!GetWindowRect(h, out r)) return true;
+                if (r.Right - r.Left < 40 || r.Bottom - r.Top < 20) return true;
+                int ix = Math.Min(r.Right, m.Right) - Math.Max(r.Left, m.Left);
+                int iy = Math.Min(r.Bottom, m.Bottom) - Math.Max(r.Top, m.Top);
+                // que no sea de otra pantalla (los bordes de una ventana vecina se asoman unos px): debe cubrir al menos 1/4 de ésta
+                if (ix <= 0 || iy <= 0 || (long)ix * iy * 4 < (long)(m.Right - m.Left) * (m.Bottom - m.Top)) return true;
+                // la primera ventana que se ve en la pantalla principal decide
+                // (un video en pantalla completa sigue "maximizado" para Windows, así que eso no cuenta: lo que importa es que cubra
+                // TODA la pantalla; una ventana maximizada normal deja la barra de tareas. Con la barra oculta sola ya bajan por A1)
+                result = r.Left <= m.Left && r.Top <= m.Top && r.Right >= m.Right && r.Bottom >= m.Bottom;
+                return false;
+            }, IntPtr.Zero);
+            return result;
         }
         catch { return false; }
     }
@@ -118,8 +173,9 @@ class ClaudeWatcher
 
     static void Say(string s) { Console.Out.WriteLine(s); Console.Out.Flush(); }
 
-    static void Main()
+    static void Main(string[] args)
     {
+        if (args.Length > 0) { uint.TryParse(args[0], out ownerPid); }
         var guard = new Thread(() => {
             try { while (Console.In.Read() != -1) { } } catch { }
             Environment.Exit(0);
@@ -136,6 +192,7 @@ class ClaudeWatcher
                 int now = Running() ? 1 : 0;
                 if (now != last) { Say(now.ToString()); last = now; }
             }
+            if (tick % 3 == 0) KeepOnTop();          // ventanas de los Clawds: cada 0.3 s
             if (tick % 5 == 0)                       // pantalla completa: cada medio segundo
             {
                 int f = Fullscreen() ? 1 : 0;

@@ -10,6 +10,7 @@ const PORT = Number(process.env.COMPANION_PORT || 0);
 const TOKEN = process.env.COMPANION_TOKEN || '';
 const PET = process.env.COMPANION_PET || '';
 const CAN_DELEGATE = process.env.COMPANION_CAN_DELEGATE === '1';
+const APPROVAL = process.env.COMPANION_APPROVAL === '1';
 
 const CREATE = {
   name: 'crear_archivo',
@@ -28,6 +29,17 @@ const CREATE = {
       abrir: { type: 'boolean', description: 'Abrirlo al usuario al terminar.' },
     },
     required: ['nombre', 'formato', 'contenido'],
+  },
+};
+
+// Claude Code la llama (--permission-prompt-tool) antes de usar una herramienta que necesita permiso
+const APPROVE = {
+  name: 'aprobar',
+  description: 'Pide permiso al usuario (en una ventanita de la mascota) para usar una herramienta. La usa Claude Code, no tú.',
+  inputSchema: {
+    type: 'object',
+    properties: { tool_name: { type: 'string' }, input: { type: 'object' }, tool_use_id: { type: 'string' } },
+    required: ['tool_name', 'input'],
   },
 };
 
@@ -100,7 +112,16 @@ async function handle(m) {
     });
   }
   if (method === 'ping') return reply(id, {});
-  if (method === 'tools/list') return reply(id, { tools: CAN_DELEGATE ? [CREATE, TOOL] : [CREATE] });
+  if (method === 'tools/list') return reply(id, { tools: [CREATE, ...(CAN_DELEGATE ? [TOOL] : []), ...(APPROVAL ? [APPROVE] : [])] });
+  if (method === 'tools/call' && params && params.name === 'aprobar' && APPROVAL) {
+    const a = params.arguments || {};
+    let out;
+    try {
+      const r = await askApp('/aprobar', { tool: a.tool_name, input: a.input || {} });
+      out = r.permitir ? { behavior: 'allow', updatedInput: a.input || {} } : { behavior: 'deny', message: 'El usuario no lo permitió.' };
+    } catch (e) { out = { behavior: 'deny', message: 'No pude pedir permiso: ' + e.message }; }
+    return reply(id, { content: [{ type: 'text', text: JSON.stringify(out) }] });
+  }
   if (method === 'tools/call' && params && params.name === 'crear_archivo') {
     try {
       const r = await askApp('/crear', { archivo: params.arguments || {} });

@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'self' 'unsafe-inline'">
+<title>Modelo y esfuerzo</title>
+<style>
+  :root {
+    --ink: #1f1e1d; --paper: #fffdf8; --orange: #d97757;             /* --orange se pinta con el color del Clawd (ver el script) */
+    --cream: color-mix(in srgb, var(--orange) 9%, #f6efe5);
+    --hover: color-mix(in srgb, var(--orange) 17%, #f6efe5);
+    --line: color-mix(in srgb, var(--orange) 22%, #e6dccd);
+    --edge: color-mix(in srgb, var(--orange) 38%, #d9ccb8);
+    --muted: color-mix(in srgb, var(--orange) 14%, #857c72);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: transparent; overflow: hidden; user-select: none; -webkit-user-select: none; }
+  body { font: 12.5px 'Segoe UI', system-ui, sans-serif; color: var(--ink); padding: 8px 10px 12px; }
+  /* la tarjeta: crema y redondeada, como los globos del chat */
+  .card {
+    background: var(--cream); border-radius: 16px; padding: 10px 8px 10px;
+    box-shadow: 0 8px 26px rgba(0, 0, 0, .38), 0 1px 0 rgba(255, 255, 255, .5) inset;
+    animation: pop .14s ease-out;
+  }
+  @keyframes pop { from { opacity: 0; transform: translateY(6px) scale(.98); } to { opacity: 1; transform: none; } }
+  h2 { margin: 2px 8px 6px; font-size: 10.5px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); }
+  .row {
+    display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 8px; border: 0; border-radius: 10px;
+    background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer;
+  }
+  .row:hover { background: var(--hover); }
+  .dot { flex: none; width: 15px; height: 15px; border-radius: 50%; border: 2px solid var(--edge); background: var(--paper); position: relative; }
+  .row.on .dot { border-color: var(--orange); }
+  .row.on .dot::after { content: ''; position: absolute; inset: 2px; border-radius: 50%; background: var(--orange); }
+  .row b { font-weight: 650; }
+  .row small { display: block; color: var(--muted); font-size: 11px; margin-top: 1px; }
+  hr { border: 0; border-top: 1px solid var(--line); margin: 8px 6px; }
+  .pills { display: flex; flex-wrap: wrap; gap: 5px; padding: 2px 8px 0; }
+  .pill {
+    padding: 4px 10px; border-radius: 999px; border: 1.5px solid var(--edge); background: var(--paper); color: var(--ink);
+    font: inherit; font-size: 11.5px; cursor: pointer;
+  }
+  .pill:hover { border-color: var(--orange); }
+  .pill.on { background: var(--orange); border-color: var(--orange); color: #fff; font-weight: 650; }
+  .hint { margin: 8px 8px 0; font-size: 11px; color: var(--muted); line-height: 1.35; }
+</style>
+</head>
+<body>
+  <div class="card" id="card">
+    <h2>Modelo</h2>
+    <div id="models"></div>
+    <hr>
+    <h2>Esfuerzo de razonamiento</h2>
+    <div class="pills" id="efforts"></div>
+    <div class="hint" id="hint"></div>
+  </div>
+<script>
+  const EFFORTS = [
+    { id: '', label: 'Auto' },
+    { id: 'low', label: 'Bajo' },
+    { id: 'medium', label: 'Medio' },
+    { id: 'high', label: 'Alto' },
+    { id: 'xhigh', label: 'Muy alto' },
+    { id: 'max', label: 'Máximo' },
+  ];
+  const HINTS = {
+    '': 'Auto: usa el nivel que Claude Code trae para cada modelo (Medio).',
+    low: 'Bajo: lo más rápido y barato; para cosas simples.',
+    medium: 'Medio: equilibrado.',
+    high: 'Alto: piensa más antes de contestar.',
+    xhigh: 'Muy alto: para problemas difíciles; tarda y gasta más.',
+    max: 'Máximo: el que más piensa; el más lento y caro.',
+  };
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  let state = null;
+  // el acento = el naranja de Clawd pasado por el mismo filtro de color que usa el Clawd (tono, saturación, brillo)
+  function accentOf(s) {
+    const f = [];
+    if (s.hue) f.push(`hue-rotate(${s.hue}deg)`);
+    if (s.sat !== undefined && s.sat !== 1) f.push(`saturate(${s.sat})`);
+    if (s.bright && s.bright !== 1) f.push(`brightness(${s.bright})`);
+    if (!f.length) return '#d97757';
+    try {
+      const c = document.createElement('canvas'); c.width = c.height = 1;
+      const x = c.getContext('2d', { willReadFrequently: true });
+      x.filter = f.join(' '); x.fillStyle = '#d97757'; x.fillRect(0, 0, 1, 1);
+      const d = x.getImageData(0, 0, 1, 1).data;
+      return `rgb(${d[0]}, ${d[1]}, ${d[2]})`;
+    } catch (_) { return '#d97757'; }
+  }
+  function render() {
+    document.documentElement.style.setProperty('--orange', accentOf(state));
+    document.getElementById('models').innerHTML = state.models.map((m) =>
+      `<button class="row${m.id === state.model ? ' on' : ''}" data-model="${esc(m.id)}"><span class="dot"></span><span><b>${esc(m.label)}</b><small>${esc(m.hint)}</small></span></button>`).join('');
+    document.getElementById('efforts').innerHTML = EFFORTS.map((e) =>
+      `<button class="pill${(state.effort || '') === e.id ? ' on' : ''}" data-effort="${e.id}">${e.label}</button>`).join('');
+    document.getElementById('hint').textContent = HINTS[state.effort || ''];
+    window.mm.size(Math.ceil(document.getElementById('card').getBoundingClientRect().height) + 20);
+  }
+  document.addEventListener('click', async (e) => {
+    const m = e.target.closest('[data-model]');
+    const f = e.target.closest('[data-effort]');
+    if (m) state = await window.mm.set({ model: m.dataset.model });
+    else if (f) state = await window.mm.set({ effort: f.dataset.effort });
+    else return;
+    render();
+  });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') window.mm.close(); });
+  window.mm.state().then((s) => { state = s; render(); });
+</script>
+</body>
+</html>

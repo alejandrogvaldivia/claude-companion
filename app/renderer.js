@@ -819,6 +819,7 @@ function renderStatus() {
   elTime.textContent = st.time || '';
   el.dot.style.background = st.dot || '#9a9a9a';
   el.dot.classList.toggle('pulse', busy);
+  el.dot.classList.toggle('ring', st.mode === 'done');
   el.status.classList.toggle('busy', busy);
   renderPlan();
   renderSays();
@@ -1861,5 +1862,5 @@ gEl.send.addEventListener('click', () => {
 gEl.nu.addEventListener('click', () => { api0.summon().then((id) => { G.pending = id; }); });
 api0.on('page:target', (d) => { G.pending = d.id; G.hover = true; groupShow(); applyPending(); gEl.input.focus(); setTimeout(() => { G.hover = false; }, 400); });
 function applyPending() { if (G.pending && G.pets.some((p) => p.id === G.pending)) { G.target = G.pending; G.pending = null; renderTo(); } }
-document.getElementById('gModel').addEventListener('click', () => { const id = currentTarget(); if (id) api0.modelMenu(id); });
+document.getElementById('gModel').addEventListener('click', () => { const id = currentTarget(); if (id) { G.menuOpen = true; api0.modelMenu(id); } });
 gEl.mic.addEventListener('click', () => { gEl.input.focus(); api0.dictate(currentTarget()); });

@@ -232,7 +232,7 @@ function main(d) {
 
     case 'Stop':
       s.state = 'done';
-      s.activity = '¡Listo! Te toca';
+      s.activity = '¡Listo!';
       delete s.prev;
       break;
 

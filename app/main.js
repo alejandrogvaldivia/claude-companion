@@ -68,14 +68,43 @@ const MODELS = [
 ];
 const modelInfo = (id) => MODELS.find((m) => m.id === id) || MODELS[0];
 const TOOLS = 'Read,Grep,Glob,WebSearch,WebFetch';
-const SYSTEM = [
+const SYSTEM_BASE = [
   'Estás hablando a través de una mascota de escritorio: un mini Claude que flota en la pantalla del usuario.',
   'Tus respuestas aparecen en globitos de cómic pequeños que se desvanecen solos, así que responde en español,',
   'breve y directo (de 1 a 4 frases), sin tablas, sin encabezados y con muy poco markdown. Si te piden algo largo, da lo esencial.',
+].join(' ');
+const SYSTEM_LECTURA = [
   'Puedes leer archivos y buscar en la web. También puedes CREAR archivos nuevos (texto, Markdown, HTML, PDF o imagen PNG)',
   'con la herramienta crear_archivo: se guardan en Documentos\\Claude Companion. No puedes cambiar archivos que ya existen',
   'ni ejecutar comandos; si te piden eso, sugiere hacerlo en Claude Code.',
 ].join(' ');
+const SYSTEM = SYSTEM_BASE + ' ' + SYSTEM_LECTURA;
+
+// Acceso del chat de la mascota (se elige en el menú): qué puede hacer cuando platicas con un Clawd.
+// Los ayudantes que se delegan siempre van en "lectura".
+const FULL_TOOLS = 'Read,Grep,Glob,WebSearch,WebFetch,Edit,Write,NotebookEdit,Bash,PowerShell,Agent';
+const ACCESS = {
+  lectura: {
+    label: 'Solo leer y buscar', hint: 'sin cambiar nada',
+    tools: TOOLS, allow: TOOLS, args: ['--permission-mode', 'default'], note: '',
+  },
+  ediciones: {
+    label: 'Leer y editar archivos', hint: 'sin comandos',
+    tools: TOOLS + ',Edit,Write,NotebookEdit', allow: TOOLS + ',Edit,Write,NotebookEdit', args: ['--permission-mode', 'acceptEdits'],
+    note: 'Puedes editar y crear archivos directamente. No puedes ejecutar comandos de terminal.',
+  },
+  aprobacion: {
+    label: 'Acceso completo, pidiéndome permiso', hint: 'lo delicado me lo pregunta',
+    tools: FULL_TOOLS, allow: TOOLS, args: ['--permission-mode', 'default', '--permission-prompt-tool', 'mcp__companion__aprobar'],
+    note: 'Tienes todas las herramientas de Claude Code (editar archivos, ejecutar comandos, etc.). Leer y buscar va directo; lo demás le pide permiso al usuario en una ventanita: si lo niega, no insistas y dile qué no pudiste hacer.',
+  },
+  total: {
+    label: 'Acceso completo, sin preguntar', hint: 'todo permitido',
+    tools: FULL_TOOLS, allow: FULL_TOOLS, args: ['--dangerously-skip-permissions'],
+    note: 'Tienes todas las herramientas de Claude Code (editar archivos, ejecutar comandos, etc.) sin pedir permiso. Piensa dos veces antes de borrar o cambiar cosas y avisa claramente qué hiciste.',
+  },
+};
+const accessOf = (helper) => (helper ? ACCESS.lectura : ACCESS[cfg.access] || ACCESS.lectura);
 
 // --- medidas (en px de diseño; se multiplican por el tamaño de ventana elegido) ---
 const DIMS = { desktop: { w: 520, h: 480 }, taskbar: { w: 430, h: 480 } };   // (+90: chat más ancho)
@@ -170,6 +199,7 @@ const cfg = {
   petScale: num(cfg0.petScale, 1, 0.6, 1.6),     // tamaño general de los Clawds
   winScale: num(cfg0.winScale, 1, 0.7, 1.5),     // tamaño general de las ventanas
   maxPets: num(cfg0.maxPets, 6, 1, 10),
+  access: ['lectura', 'ediciones', 'aprobacion', 'total'].includes(cfg0.access) ? cfg0.access : 'lectura',   // qué puede hacer el chat de la mascota
   timing: {
     sleepMs: num(T0.sleepMs, 60000, 5000),             // sin actividad: se duerme
     hideMs: num(T0.hideMs, 300000, 30000),             // sin actividad: se despide y se oculta
@@ -372,6 +402,26 @@ function sharedBounds() {
   return { x: wa.x, y: wa.y, width: wa.width, height: wa.height };
 }
 function sendShared(ch, d) { if (sharedWin && !sharedWin.isDestroyed() && sharedReady) sharedWin.webContents.send(ch, d); }
+// Los Clawds siempre van encima de todo y nunca se minimizan. "Siempre encima" lo mantiene el vigilante nativo (watcher.cs, con
+// SetWindowPos, porque Electron no lo puede volver a poner cuando Windows se lo quita); aquí solo se restaura si se minimiza.
+let onTopTimer = null, onTopLogAt = 0;
+function keepOnTop() {
+  const wins = new Set();
+  if (sharedWin && !sharedWin.isDestroyed()) wins.add(sharedWin);
+  for (const p of pets.values()) if (p.win && !p.win.isDestroyed() && !p.shared) wins.add(p.win);
+  for (const w of wins) {
+    try {
+      let fixed = '';
+      if (w.isMinimized()) { w.showInactive(); if (w.isMinimized()) w.restore(); fixed = 'minimizada'; }
+      if (fixed && Date.now() - onTopLogAt > 30000) { onTopLogAt = Date.now(); log('ventana de Clawds recuperada (' + fixed + ')'); }
+    } catch (_) { /* nada */ }
+  }
+}
+function armOnTop(win) {
+  const back = () => setTimeout(() => { try { if (!win.isDestroyed() && win.isMinimized()) { win.showInactive(); if (win.isMinimized()) win.restore(); } } catch (_) { /* nada */ } }, 30);
+  win.on('minimize', back);
+  if (!onTopTimer) onTopTimer = setInterval(keepOnTop, 1000);
+}
 function ensureShared() {
   if (sharedWin && !sharedWin.isDestroyed()) return sharedWin;
   sharedRect = sharedBounds();
@@ -388,6 +438,7 @@ function ensureShared() {
     },
   });
   win.setAlwaysOnTop(true, 'floating');
+  armOnTop(win);
   win.setIgnoreMouseEvents(true, { forward: true });
   win.loadFile(path.join(__dirname, 'index.html'));
   win.webContents.on('console-message', (_e, level, message, line) => { if (level >= 3 || OPTS.trace) log(`renderer(compartida)[${level}]: ${message} (línea ${line})`); });
@@ -617,6 +668,7 @@ function createPetWindow(p, entrance, o = {}) {
   p.identityKey = '';
   pets.set(p.id, p);
   win.setAlwaysOnTop(true, 'floating');
+  armOnTop(win);
   win.setIgnoreMouseEvents(true, { forward: true });
   win.loadFile(path.join(__dirname, 'index.html'));
   win.webContents.on('console-message', (_e, level, message, line) => {
@@ -1004,7 +1056,7 @@ const DOT = { gray: '#9A9A9A', orange: '#D97757', yellow: '#F2C94C', green: '#4C
 function demoStatus(m) {
   const acts = {
     working: ['working', 'Listando sesiones'], thinking: ['working', 'Pensando…'],
-    attention: ['attention', 'Necesito tu permiso · Ejecutar un comando'], done: ['done', '¡Listo! Te toca'],
+    attention: ['attention', 'Necesito tu permiso · Ejecutar un comando'], done: ['done', '¡Listo!'],
     error: ['error', 'Algo falló y me detuve'], idle: ['idle', 'Esperando tu mensaje'],
   };
   if (!acts[m]) return [];
@@ -1063,9 +1115,9 @@ function computeStatus(list, single) {
     mode: m, dot, hasInfo: true, age: info.age,
     key: `${info.sid}|${info.state}`,
     showBubble: info.state !== 'idle',
-    title: sub0 || 'Trabajando…',
+    title: m === 'done' ? '¡Listo!' : sub0 || 'Trabajando…',   // (al terminar solo "¡Listo!", sin "Te toca")
     time: busy && secs >= 2 ? (secs < 60 ? `${secs}s` : `${Math.floor(secs / 60)}m ${secs % 60}s`) : '',
-    sub: busy ? '' : (info.title ? String(info.title) : '') + (h ? `${info.title ? ' · ' : ''}${h}` : ''),
+    sub: busy || m === 'done' ? '' : (info.title ? String(info.title) : '') + (h ? `${info.title ? ' · ' : ''}${h}` : ''),
     extra: !single && vivas > 1 ? `+${vivas - 1} más` : '',
     plan, says,
   };
@@ -1592,6 +1644,7 @@ function onFinished(p) {
 const SYSTEM_BRANCH = 'Esta plática es aparte de una sesión de Claude Code del usuario (la sesión original sigue en la app de Claude y no se toca).' +
   ' Abajo tienes lo más reciente de esa sesión para que sepas de qué va; si necesitas más, puedes leer sus archivos. Aquí platicas, lees, buscas y puedes crear archivos nuevos (no cambiar los de la sesión).';
 const HISTORY_MAX = 60;
+const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'];
 function defaultChatModel(p) {
   if (p.sid) {
     const info = lastList.find((s) => s.sid === p.sid);
@@ -1610,6 +1663,7 @@ function chatOf(p) {
       base: p.sid && !s.lite ? null : s.base || null, cur: p.sid && !s.lite ? null : s.cur || null, cwd: s.cwd || null,
       history: Array.isArray(s.history) ? s.history.slice(-HISTORY_MAX) : [],
       model: s.model ? modelInfo(s.model).id : defaultChatModel(p),
+      effort: EFFORT_LEVELS.includes(s.effort) ? s.effort : null,     // null = el de Claude Code para ese modelo
       title: s.title || null, savedTitle: s.savedTitle || null, aiTitled: !!s.aiTitled,
       // (si ya habías cambiado el modelo antes de que existiera esta opción, cuenta como elegido por ti)
       pinned: s.pinned !== undefined ? !!s.pinned : !!(p.sid && s.model && modelInfo(s.model).id !== defaultChatModel(p)),
@@ -1621,7 +1675,7 @@ function chatOf(p) {
 function saveChat(p) {
   const c = chatOf(p);
   if (c.history.length > HISTORY_MAX) c.history = c.history.slice(-HISTORY_MAX);
-  recOf(p).chat = { lite: true, base: c.base, cur: c.cur, cwd: c.cwd, history: c.history, model: c.model, pinned: !!c.pinned, title: c.title, savedTitle: c.savedTitle, aiTitled: c.aiTitled };
+  recOf(p).chat = { lite: true, base: c.base, cur: c.cur, cwd: c.cwd, history: c.history, model: c.model, effort: c.effort || null, pinned: !!c.pinned, title: c.title, savedTitle: c.savedTitle, aiTitled: c.aiTitled };
   saveCfg();
   groupDirty = true;
 }
@@ -1644,7 +1698,7 @@ function stopChat(p) {
 const stopAllChats = () => { for (const p of pets.values()) stopChat(p); };
 
 // lo más reciente de su sesión: título, carpeta, tareas y los últimos mensajes (recortados)
-const CTX_MSGS = 10, CTX_CHARS = 700;
+const CTX_MSGS = 4, CTX_CHARS = 400;   // contexto de la sesión que viaja con cada mensaje (antes 10 × 700: ~2.5k tokens extra por mensaje)
 function sessionContext(p) {
   const info = lastList.find((s) => s.sid === p.sid);
   const tr = info && info.tp ? readTranscript(info.tp) : null;
@@ -1696,7 +1750,7 @@ function mcpConfigFor(p, helper) {
   if (api.port) {
     servers.companion = {
       type: 'stdio', command: process.execPath, args: [COMPANION_MCP],
-      env: { ELECTRON_RUN_AS_NODE: '1', COMPANION_PORT: String(api.port), COMPANION_TOKEN: api.token, COMPANION_PET: String(p.id), COMPANION_CAN_DELEGATE: helper ? '0' : '1' },
+      env: { ELECTRON_RUN_AS_NODE: '1', COMPANION_PORT: String(api.port), COMPANION_TOKEN: api.token, COMPANION_PET: String(p.id), COMPANION_CAN_DELEGATE: helper ? '0' : '1', COMPANION_APPROVAL: !helper && cfg.access === 'aprobacion' ? '1' : '0' },
     };
   }
   if (!Object.keys(servers).length) return null;
@@ -1707,6 +1761,22 @@ function mcpConfigFor(p, helper) {
   return { file, names: Object.keys(servers) };
 }
 
+// Nivel "acceso completo, pidiéndome permiso": Claude Code pregunta aquí antes de usar una herramienta delicada
+async function askApproval(p, j) {
+  const tool = String(j.tool || 'una herramienta');
+  const input = (j.input && typeof j.input === 'object') ? j.input : {};
+  const name = p ? recOf(p).name : 'Un Clawd';
+  let detail = input.command || input.file_path || input.notebook_path || input.url || '';
+  if (!detail) { try { detail = JSON.stringify(input, null, 2); } catch (_) { detail = ''; } }
+  if (input.command && input.description) detail = String(input.description) + '\n\n' + detail;
+  const { response } = await dialog.showMessageBox({
+    type: 'question', title: APP_NAME, message: `${name} quiere usar ${tool}`, detail: String(detail).slice(0, 1500),
+    buttons: ['Permitir', 'Negar'], defaultId: 1, cancelId: 1, noLink: true,
+  });
+  log(`permiso de ${tool}: ${response === 0 ? 'permitido' : 'negado'}`);   // (sin guardar lo que pedía)
+  return { permitir: response === 0 };
+}
+
 // ---------- servidor local para "delegar" (solo 127.0.0.1, con contraseña de un solo arranque) ----------
 const http = require('http');
 const crypto = require('crypto');
@@ -1714,13 +1784,14 @@ const api = { port: 0, token: crypto.randomBytes(16).toString('hex') };
 function startApi() {
   const srv = http.createServer((req, res) => {
     const done = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(obj)); };
-    if (req.method !== 'POST' || (req.url !== '/delegar' && req.url !== '/crear')) return done(404, { error: 'no' });
+    if (req.method !== 'POST' || (req.url !== '/delegar' && req.url !== '/crear' && req.url !== '/aprobar')) return done(404, { error: 'no' });
     let body = '';
     req.on('data', (c) => { body += c; if (body.length > 1e6) req.destroy(); });
     req.on('end', async () => {
       let j; try { j = JSON.parse(body); } catch (_) { return done(400, { error: 'json' }); }
       if (j.token !== api.token) return done(403, { error: 'contraseña' });
       const from = pets.get(Number(j.from));
+      if (req.url === '/aprobar') { try { done(200, await askApproval(from, j)); } catch (e) { done(200, { permitir: false }); } return; }
       if (req.url === '/crear') {
         try { done(200, await createFile(from, j.archivo || {})); }
         catch (e) { log('crear: ' + (e.message || e)); done(400, { error: String(e.message || e) }); }
@@ -1929,6 +2000,16 @@ function runHelper(from, boss, t, resolve) {
   }, OPTS.noIntro ? 300 : 1800);
 }
 
+// Un ayudante (Clawd que otro invoca para UNA tarea) sabe solo lo necesario para cumplirla: su tarea, quién la pide,
+// su entrenamiento si lo tiene y sus extensiones. Sin plática previa, sin contexto de sesiones, sin el estilo de los globos,
+// sin CLAUDE.md ni memoria, sin skills y sin guardar nada (así gasta ~4.6k tokens en vez de ~10.9k por llamada).
+function helperSystem(p, opts, extNames) {
+  let s = `Eres ${recOf(p).name}, un ayudante que ${opts.from || 'otro Clawd'} invocó para UNA tarea. Hazla completa y entrega el resultado directo, en español y sin preguntas (nadie te va a contestar).`;
+  const role = recOf(p).role;
+  if (role && (role.text || role.title)) s += ` Tu función${role.title ? ` (${role.title})` : ''}${role.text ? `: ${role.text}` : '.'}`;
+  if (extNames.length) s += ` Extensiones que puedes usar: ${extNames.map(extLabel).join(', ')}.`;
+  return s;
+}
 function chatSend(p, text, opts) {
   opts = opts || {};
   const c = chatOf(p);
@@ -1947,9 +2028,11 @@ function chatSend(p, text, opts) {
   // extensiones de este Clawd (+ "delegar" si no es ayudante): todas sus herramientas quedan permitidas
   let mcp = null;
   try { mcp = mcpConfigFor(p, !!opts.helper); } catch (e) { log('extensiones: ' + e); }
-  const allowed = [TOOLS, ...(mcp ? mcp.names.map((n) => `mcp__${n}`) : [])].join(',');
+  const acc = accessOf(!!opts.helper);
+  const allowed = [acc.allow, ...(mcp ? mcp.names.map((n) => `mcp__${n}`) : [])].join(',');
   const extNames = petExtensions(p);
-  let sys = SYSTEM + (linked ? sessionContext(p) : '');
+  let sys = (acc === ACCESS.lectura ? SYSTEM : SYSTEM_BASE + ' Puedes leer archivos, buscar en la web y crear archivos nuevos con la herramienta crear_archivo.') + (linked ? sessionContext(p) : '');
+  if (acc.note) sys += `\n\nEl usuario te dio acceso ampliado desde el menú de la mascota (esto reemplaza cualquier límite anterior sobre cambiar archivos o ejecutar comandos). ${acc.note}`;
   const role = recOf(p).role;
   if (role && (role.text || role.title)) sys += `\n\nEl usuario te entrenó para una función específica${role.title ? ` ("${role.title}")` : ''}. Cúmplela siempre en esta plática${role.text ? `; sus instrucciones:\n${role.text}` : '.'}`;
   if (extNames.length) sys += `\n\nTienes estas extensiones y puedes usarlas libremente: ${extNames.map(extLabel).join(', ')}.`;
@@ -1962,20 +2045,23 @@ function chatSend(p, text, opts) {
     if (tl.length) sys += '\n\nClawds que el usuario entrenó para una función (si delegas y una tarea encaja con la función de uno, pon su nombre en "clawd" para que la haga él):\n' +
       tl.map((x) => `- ${x.rec.name}${x.rec.role.title ? ` (${x.rec.role.title})` : ''}${x.rec.role.text ? `: ${x.rec.role.text.replace(/\s+/g, ' ').slice(0, 160)}` : ''}`).join('\n');
   }
+  if (opts.helper) sys = helperSystem(p, opts, extNames);
   const args = ['-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages',
-    '--model', c.model, '--tools', TOOLS, '--allowedTools', allowed, '--permission-mode', 'default',
-    '--append-system-prompt', sys];
+    '--model', c.model, '--tools', acc.tools, '--allowedTools', allowed, ...acc.args,
+    opts.helper ? '--system-prompt' : '--append-system-prompt', sys];   // (el ayudante reemplaza el mensaje por defecto de Claude Code)
   if (mcp) args.push('--mcp-config', mcp.file, '--strict-mcp-config');
-  if (c.cur) args.push('--resume', c.cur);
+  if (opts.helper) args.push('--disable-slash-commands', '--no-session-persistence');   // sin skills y sin guardar la sesión
+  else if (c.cur) args.push('--resume', c.cur);
   else if (c.base) args.push('--resume', c.base, '--fork-session');
   // nombre de la plática (lo guarda Claude Code mismo): provisional con tu primer mensaje, luego el de Haiku
   if (!c.title) c.title = provisionalTitle(text);
-  args.push('--name', c.title);
+  if (c.effort) args.push('--effort', c.effort);
+  if (!opts.helper) args.push('--name', c.title);
   c.savedTitle = c.title;
   let proc;
   try {
     // (MCP_TOOL_TIMEOUT: "delegar" espera a que terminen los ayudantes)
-    proc = spawn(CLAUDE, args, { cwd: c.cwd, env: { ...process.env, COMPANION_CHAT: '1', MASCOTA_CHAT: '1', MCP_TOOL_TIMEOUT: '900000' }, windowsHide: true });
+    proc = spawn(CLAUDE, args, { cwd: c.cwd, env: { ...process.env, COMPANION_CHAT: '1', MASCOTA_CHAT: '1', MCP_TOOL_TIMEOUT: '900000', ...(opts.helper ? { CLAUDE_CODE_DISABLE_CLAUDE_MDS: '1', CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1' } : {}) }, windowsHide: true });
   } catch (e) {
     c.history.push({ who: 'Claude', text: 'No encontré Claude Code en tu compu.', err: true, ts: Date.now() });
     saveChat(p);
@@ -1990,7 +2076,7 @@ function chatSend(p, text, opts) {
   let buf = '', gotResult = false, errTxt = '';
   const handle = (line) => {
     let m; try { m = JSON.parse(line); } catch (_) { return; }
-    if (m.session_id && c.proc === proc) { if (c.cur !== m.session_id) { c.cur = m.session_id; c.base = null; saveChat(p); } }
+    if (m.session_id && c.proc === proc && !opts.helper) { if (c.cur !== m.session_id) { c.cur = m.session_id; c.base = null; saveChat(p); } }
     if (m.parent_tool_use_id) return;
     if (m.type === 'stream_event') {
       const ev = m.event || {};
@@ -2124,7 +2210,67 @@ function modelMenuItems(p) {
     label: `${m.label}  —  ${m.hint}`, type: 'radio', checked: m.id === c.model, click: () => setChatModel(p, m.id),
   }));
 }
-ipcMain.on('model:menu', (e, id) => { const p = petOf(e, id); if (p) Menu.buildFromTemplate(modelMenuItems(p)).popup({ window: p.win }); });
+function setChatEffort(p, level) {
+  const c = chatOf(p);
+  c.effort = EFFORT_LEVELS.includes(level) ? level : null;
+  saveChat(p);
+  log(`Clawd #${p.id}: esfuerzo ${c.effort || 'auto'}`);
+}
+// ventanita propia "Modelo y esfuerzo" (crema y redondeada, como los globos del chat)
+let mmWin = null, mmPet = 0, mmAnchor = { x: 0, y: 0 };
+function closeModelPopup() { const w = mmWin; mmWin = null; if (w && !w.isDestroyed()) w.destroy(); }
+function openModelPopup(p) {
+  if (!p || !p.alive) return;
+  if (mmWin && !mmWin.isDestroyed() && mmPet === p.id) { closeModelPopup(); return; }   // otro clic en el mismo botón: se cierra
+  closeModelPopup();
+  mmPet = p.id;
+  mmAnchor = screen.getCursorScreenPoint();
+  const w = new BrowserWindow({
+    width: 300, height: 340, x: mmAnchor.x - 40, y: mmAnchor.y - 350, show: false,
+    frame: false, transparent: true, backgroundColor: '#00000000', hasShadow: false,
+    resizable: false, maximizable: false, minimizable: false, fullscreenable: false,
+    alwaysOnTop: true, skipTaskbar: true, title: APP_NAME, icon: ICON,
+    webPreferences: {
+      preload: path.join(__dirname, 'modelmenu-preload.js'), additionalArguments: ['--mm-pet=' + p.id],
+      contextIsolation: true, nodeIntegration: false, sandbox: false, spellcheck: false,
+    },
+  });
+  mmWin = w;
+  w.setAlwaysOnTop(true, 'screen-saver');
+  w.loadFile(path.join(__dirname, 'modelmenu.html'));
+  w.on('blur', () => setTimeout(() => { if (mmWin === w) closeModelPopup(); }, 80));
+  w.on('closed', () => { if (mmWin === w) mmWin = null; });
+}
+const mmFrom = (e, id) => (mmWin && !mmWin.isDestroyed() && e.sender === mmWin.webContents ? pets.get(Number(id)) : null);
+ipcMain.handle('mm:state', (e, id) => {
+  const p = mmFrom(e, id);
+  if (!p) return null;
+  const c = chatOf(p);
+  const col = colorOf(recOf(p).color);
+  return { models: MODELS, model: c.model, effort: c.effort || '', hue: col.hue || 0, sat: col.sat === undefined ? 1 : col.sat, bright: col.bright || 1 };
+});
+ipcMain.handle('mm:set', (e, id, patch) => {
+  const p = mmFrom(e, id);
+  if (!p) return null;
+  patch = patch || {};
+  if (patch.model && MODELS.some((x) => x.id === patch.model)) setChatModel(p, patch.model);
+  if ('effort' in patch) setChatEffort(p, patch.effort);
+  const c = chatOf(p);
+  const col = colorOf(recOf(p).color);
+  return { models: MODELS, model: c.model, effort: c.effort || '', hue: col.hue || 0, sat: col.sat === undefined ? 1 : col.sat, bright: col.bright || 1 };
+});
+ipcMain.on('mm:size', (e, id, h) => {
+  if (!mmFrom(e, id)) return;
+  const d = screen.getDisplayNearestPoint(mmAnchor).workArea;
+  const width = 300, height = Math.max(120, Math.min(Math.round(Number(h) || 340), d.height - 20));
+  const x = clamp(mmAnchor.x - 40, d.x, d.x + d.width - width);
+  let y = mmAnchor.y - height - 8;                                  // arriba del botón; si no cabe, abajo
+  if (y < d.y) y = Math.min(mmAnchor.y + 12, d.y + d.height - height);
+  mmWin.setBounds({ x: Math.round(x), y: Math.round(y), width, height });
+  if (!mmWin.isVisible()) { mmWin.show(); mmWin.focus(); }
+});
+ipcMain.on('mm:close', (e, id) => { if (mmFrom(e, id)) closeModelPopup(); });
+ipcMain.on('model:menu', (e, id) => { openModelPopup(petOf(e, id)); });
 
 // ---------- abrir en Claude Desktop ----------
 // La app guarda qué sesión suya corresponde a cada sesión de Claude Code (claude-code-sessions/…/local_*.json).
@@ -2329,6 +2475,26 @@ function setPetScale(v) {
 function modeItems() {
   return Object.keys(MODE_LABEL).map((m) => ({ label: MODE_LABEL[m], type: 'checkbox', checked: mode === m, click: () => setMode(m) }));
 }
+function setAccess(id) {
+  if (!ACCESS[id] || cfg.access === id) return;
+  if (id === 'total') {
+    const r = dialog.showMessageBoxSync({
+      type: 'warning', title: APP_NAME, message: '¿Dar acceso completo sin preguntar?',
+      detail: 'Desde el chat de la mascota, Claude podrá editar y borrar archivos y ejecutar comandos en tu compu sin pedirte permiso. Un mensaje mal entendido podría cambiar cosas sin avisarte.',
+      buttons: ['Cancelar', 'Sí, sin preguntar'], defaultId: 0, cancelId: 0, noLink: true,
+    });
+    if (r !== 1) { refreshTray(); return; }
+  }
+  cfg.access = id; saveCfg(); refreshTray();
+  log('acceso del chat: ' + id);
+}
+function accessMenuItems() {
+  return [
+    ...Object.entries(ACCESS).map(([id, a]) => ({ label: `${a.label}  —  ${a.hint}`, type: 'radio', checked: cfg.access === id, click: () => setAccess(id) })),
+    { type: 'separator' },
+    { label: 'Los ayudantes que delegas siempre van en solo leer y buscar', enabled: false },
+  ];
+}
 function sizeItems() {
   const pet = [[0.8, 'Chicos'], [1, 'Normales'], [1.2, 'Grandes']];
   const win = [[0.85, 'Chicas'], [1, 'Normales'], [1.2, 'Grandes']];
@@ -2418,6 +2584,7 @@ function trayMenu() {
   return Menu.buildFromTemplate([
     ...upd,
     ...modeItems(), { type: 'separator' }, ...sizeItems(), { type: 'separator' },
+    { label: 'Acceso del chat de la mascota', submenu: accessMenuItems() },
     { label: 'Conectado a Claude Code', type: 'checkbox', checked: hooked, click: () => (hooked ? disconnectHooks() : connectHooks(true)) },
     { label: `Buscar actualizaciones (versión ${app.getVersion()})`, enabled: app.isPackaged && !update.checking, click: () => checkUpdates(true) },
     { type: 'separator' }, last,
@@ -2455,7 +2622,8 @@ ipcMain.on('menu', (e, id) => {
     ...(p.sid ? [{ label: 'Mandar lo último que platicamos a su sesión', enabled: chatOf(p).history.some((h) => h.who === 'Yo'), click: () => sendToSession(p) }] : []),
     { label: 'Nueva conversación con este Clawd', click: () => chatNew(p) },
     { label: 'Abrir su plática contigo en Claude', enabled: !!(chatOf(p).cur || chatOf(p).base), click: () => openInApp(p) },
-    { label: 'Modelo con el que te contesta', submenu: modelMenuItems(p) },
+    { label: 'Modelo y esfuerzo con el que te contesta…', click: () => openModelPopup(p) },
+    { label: 'Acceso del chat de la mascota', submenu: accessMenuItems() },
     { label: 'Extensiones', submenu: extensionMenuItems(p) },
   );
   if (p.extra) items.push({ label: 'Despedir a este Clawd', click: () => dismissExtra(p) });
@@ -2596,7 +2764,7 @@ function startWatcher() {
     watcher = spawn('node', [fake], { windowsHide: true, stdio: ['pipe', 'pipe', 'ignore'] });
   } else {
     if (!fs.existsSync(WATCHER)) { log('no encontré el vigilante clawd.exe'); return; }
-    watcher = spawn(WATCHER, [], { windowsHide: true, stdio: ['pipe', 'pipe', 'ignore'] });
+    watcher = spawn(WATCHER, [String(process.pid)], { windowsHide: true, stdio: ['pipe', 'pipe', 'ignore'] });   // (le paso mi pid: él mantiene mis ventanas encima)
   }
   watcher.stdout.on('data', (d) => {
     for (const raw of String(d).split(/\r?\n/)) {
