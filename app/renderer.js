@@ -761,7 +761,7 @@ function tick() {
 
   if (oneShot) {
     const left = oneShot.until - now;
-    const yields = urgent && oneShot.idle && left > 2500 && !entrance.active && !leaving;
+    const yields = urgent && oneShot.idle && !entrance.active && !leaving;      // si empieza a trabajar (o te necesita), corta la animación de rato libre en el acto
     if (left > 0 && !yields) return;
     const then = left <= 0 ? oneShot.then : null;
     if (oneShot.idle && left <= 0) { visualStart = now - (LOOP_MS[visual] || 0); }
@@ -830,7 +830,7 @@ function tick() {
     if (lapState !== 'outro') laptopStop(() => { visual = null; tick(); });
     return;
   }
-  if (v !== visual && !waitLoop(now)) return;
+  if (v !== visual && !urgent && !waitLoop(now)) return;                     // (con trabajo no espera a que termine la vuelta de la animación)
 
   show(v);
   // un símbolo de plática con otro Clawd manda sobre los efectos de rato libre
@@ -1444,7 +1444,7 @@ function destroy() {
 }
 // su luz: ocupado (trabajando o contestándote) pulsa, dormido respira, si no, quieta
 const glow = () => (poofing || hang.on ? 'hidden' : st.mode === 'attention' && !leaving ? 'attn' : busyNow() || chatBusy ? 'busy' : visual === 'nap' ? 'sleep' : 'idle');
-return { root, emit: api._emit, destroy, socialOk, glow, stripIn: () => stripIn, hovering: () => hovering || talkHover };
+return { root, emit: api._emit, destroy, socialOk, glow, stripIn: () => stripIn, hovering: () => hovering || talkHover, leave: () => { hovering = false; talkHover = false; scheduleHide(); } };
 } // fin de createClawd
 
 // =====================================================================
@@ -1586,6 +1586,8 @@ api0.on('page:place', (m) => {
   }
   if (document.body.classList.contains('notrans')) { void document.body.offsetHeight; requestAnimationFrame(() => requestAnimationFrame(() => document.body.classList.remove('notrans'))); }
 });
+// el cursor salió de esta pantalla (el proceso principal lo vigila): nadie lo tiene encima y el chat se cierra
+api0.on('cursor:out', () => { G.hover = false; for (const p of PAGE.pets.values()) p.leave(); groupScheduleHide(); });
 api0.on('page:z', (ids) => ids.forEach((id, i) => { const p = PAGE.pets.get(id); if (p) p.root.querySelector('#pet').style.zIndex = String(i + 1); }));   // quién va delante: solo entre Clawds
 api0.on('page:group', (d) => { Object.assign(G, { pets: d.pets || G.pets, feed: d.feed || G.feed }); if (d.pos) placeGroup(d.pos); applyPending(); renderGroup(); });
 
@@ -1930,7 +1932,9 @@ function syncFloor() {
   document.body.classList.toggle('gopen', on);   // con el chat abierto, las pastillas de arriba se esconden (si no, quedan tras la barra)
 }
 new MutationObserver(syncFloor).observe(gEl.box, { attributes: true, attributeFilter: ['class', 'style'] });
-function groupBusy() { return G.hover || G.listOpen || (document.activeElement === gEl.input && document.hasFocus()) || G.live.size > 0; }
+// el chat se queda solo mientras el cursor esté sobre él o sobre un Clawd (o abriste el menú de modelo): en cuanto sale, se va,
+// aunque estés escribiendo o esté contestando (lo escrito se queda en la caja)
+function groupBusy() { return G.hover || G.menuOpen; }
 function groupScheduleHide() {
   if (!PAGE.shared) return;
   clearTimeout(G.hideT);
@@ -1939,8 +1943,15 @@ function groupScheduleHide() {
     if ([...PAGE.pets.values()].some((p) => p.hovering())) return;
     gEl.box.classList.remove('show');
     G.listOpen = false; gEl.list.classList.remove('open'); gEl.to.classList.remove('open');
-  }, 900);
+  }, 180);                                    // (un instante, para poder pasar del Clawd al chat sin que se cierre)
 }
+// vigilante: si el chat está abierto y el cursor no está sobre él ni sobre un Clawd, se cierra (aunque se haya abierto sin que el cursor pasara
+// por ahí, por ejemplo al invocar un Clawd, o se haya perdido un aviso de "el cursor salió")
+setInterval(() => {
+  if (!PAGE.shared || !gEl.box.classList.contains('show') || groupBusy()) return;
+  if ([...PAGE.pets.values()].some((p) => p.hovering())) return;
+  groupScheduleHide();
+}, 400);
 gEl.box.addEventListener('mouseenter', () => { G.hover = true; clearTimeout(G.hideT); });
 gEl.box.addEventListener('mouseleave', () => { G.hover = false; groupScheduleHide(); });
 gEl.input.addEventListener('blur', () => setTimeout(groupScheduleHide, 60));
@@ -1995,7 +2006,7 @@ gEl.send.addEventListener('click', () => {
 });
 // Clawd con +: invoca un Clawd nuevo; cuando llega, "Responder a" queda en él
 gEl.nu.addEventListener('click', () => { api0.summon().then((id) => { G.pending = id; }); });
-api0.on('page:target', (d) => { G.pending = d.id; G.hover = true; groupShow(); applyPending(); gEl.input.focus(); setTimeout(() => { G.hover = false; }, 400); });
+api0.on('page:target', (d) => { G.pending = d.id; G.hover = true; groupShow(); applyPending(); gEl.input.focus(); setTimeout(() => { G.hover = false; groupScheduleHide(); }, 400); });
 function applyPending() { if (G.pending && G.pets.some((p) => p.id === G.pending)) { G.target = G.pending; G.pending = null; renderTo(); } }
 document.getElementById('gModel').addEventListener('click', () => { const id = currentTarget(); if (id) { G.menuOpen = true; api0.modelMenu(id); } });
 gEl.mic.addEventListener('click', () => { gEl.input.focus(); api0.dictate(currentTarget()); });

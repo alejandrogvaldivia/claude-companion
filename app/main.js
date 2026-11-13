@@ -247,18 +247,22 @@ function winForFeet(p, fx, fy) {
 let fsOn = false, ahOn = false, tbShown = 0;
 const floorLow = () => fsOn || ahOn;
 const AH_ROOM = 120;                      // espacio extra arriba de la ventana para subir con la barra
-function taskbarGeom() {
-  const d = screen.getPrimaryDisplay();
+// x: un Clawd (su pantalla), una pantalla (display) o nada (la principal)
+function taskbarGeom(x) {
+  const prim = screen.getPrimaryDisplay();
+  const d = !x ? prim : x.bounds ? x : dispOf(x);
+  const isPrim = d.id === prim.id;
   const wa = d.workArea, b = d.bounds;
   const bottom = b.y + b.height;
-  const top = fsOn ? bottom : ahOn ? bottom - tbShown : wa.y + wa.height;
+  const fs = isPrim && fsOn, ah = isPrim && ahOn;               // pantalla completa y "ocultar la barra" solo se vigilan en la principal
+  const top = fs ? bottom : ah ? bottom - tbShown : wa.y + wa.height;
   // límites de la ventana de cada Clawd: lo que cuenta es su DIBUJO, que puede llegar hasta las orillas de la pantalla
-  // (la ventana compartida cubre toda la pantalla, así que no hay nada que recortar; antes se limitaba la caja de 430 px)
   const bw = petBoxW();
   const half = bw * SPRITE_HALF * FAMILY_SCALE.sonnet * cfg.petScale;     // mitad del ancho del dibujo (tamaño Sonnet, el más común)
   const mid = zr(TB_PET_X) + bw * CLAWD_MID;                              // dónde está el centro de Clawd dentro de su ventana
-  return { top, winBottom: floorLow() ? bottom : wa.y + wa.height, minX: b.x - Math.round(mid - half), maxX: b.x + b.width - Math.round(mid + half), b };
+  return { top, winBottom: fs || ah ? bottom : wa.y + wa.height, minX: b.x - Math.round(mid - half), maxX: b.x + b.width - Math.round(mid + half), b, ah, id: d.id };
 }
+
 // =====================================================================
 //  Los Clawds (uno por sesión)
 // =====================================================================
@@ -287,6 +291,7 @@ class Pet {
     this.nextWander = Date.now() + 8000 + Math.random() * 8000;
     this.homeX = null;                // barra de tareas: su lugar de siempre
     this.scaleNow = 1;
+    this.dispId = null;               // id de la pantalla donde vive (null = la principal)
   }
   get alive() { return !!(this.win && !this.win.isDestroyed()) && !this.removed; }
   // todo lo que va a su página lleva su id (la página puede tener varios Clawds)
@@ -299,6 +304,14 @@ function leadPet() {
   return best;
 }
 // el chat (globitos) siempre va con el anfitrión
+// (el arrastre sigue en la página donde empezó aunque el Clawd ya haya pasado a otra pantalla)
+function petOfAny(e, id) {
+  const p = pets.get(Number(id));
+  if (!p || !p.alive) return null;
+  if (p.win.webContents === e.sender) return p;
+  for (const x of shared.values()) if (x.win && x.win.webContents === e.sender) return p;
+  return null;
+}
 function petOf(e, id) { const p = pets.get(Number(id)); return p && p.alive && p.win.webContents === e.sender ? p : null; }
 const anyWin = () => { const p = leadPet() || [...pets.values()].find((q) => q.alive); return p ? p.win : null; };
 
@@ -359,29 +372,34 @@ function posOf(p) { return p.shared ? p.pos : p.win.getPosition(); }
 // =====================================================================
 //  Ventana compartida: en la barra de tareas todos los Clawds viven en UNA ventana
 // =====================================================================
-let sharedWin = null, sharedReady = false, sharedRect = null;
+// una ventana transparente por pantalla (cada pantalla tiene su barra de tareas); los Clawds pasan de una a otra al arrastrarlos
+const shared = new Map();            // id de pantalla -> { id, win, rect, ready, reset }
+const displayById = (id) => screen.getAllDisplays().find((d) => d.id === id) || null;
+const dispOf = (p) => (p.dispId != null && displayById(p.dispId)) || screen.getPrimaryDisplay();
+const anySharedWin = () => { for (const e of shared.values()) if (e.win && !e.win.isDestroyed()) return e.win; return null; };
 const isShared = () => !SHOT;
 // mientras alguien se arrastra por arriba o cae en paracaídas, la ventana cubre toda la pantalla (sigue siendo transparente y
 // deja pasar los clics); el resto del tiempo es solo la franja de abajo
-const anyTall = () => [...pets.values()].some((p) => p.tall);
+const anyTall = (id) => [...pets.values()].some((p) => p.tall && dispOf(p).id === id);
 function setTall(p, on) {
-  const was = anyTall();
+  const id = dispOf(p).id;
+  const was = anyTall(id);
   p.tall = !!on;
-  if (anyTall() !== was && sharedWin) layoutShared();
+  if (anyTall(id) !== was && shared.has(id)) layoutShared();
 }
-function sharedBounds() {
-  const g = taskbarGeom();
-  if (anyTall()) return { x: g.b.x, y: g.b.y, width: g.b.width, height: g.winBottom - g.b.y };
-  const h = dims().h + (ahOn ? zr(AH_ROOM) : 0);
+function sharedBounds(d) {
+  const g = taskbarGeom(d);
+  if (anyTall(d.id)) return { x: g.b.x, y: g.b.y, width: g.b.width, height: g.winBottom - g.b.y };
+  const h = dims().h + (g.ah ? zr(AH_ROOM) : 0);
   return { x: g.b.x, y: g.winBottom - h, width: g.b.width, height: h };
 }
-function sendShared(ch, d) { if (sharedWin && !sharedWin.isDestroyed() && sharedReady) sharedWin.webContents.send(ch, d); }
+function sendShared(ch, d, id) { for (const e of shared.values()) if (e.ready && e.win && !e.win.isDestroyed() && (id === undefined || e.id === id)) e.win.webContents.send(ch, d); }
 // Los Clawds siempre van encima de todo y nunca se minimizan. "Siempre encima" lo mantiene el vigilante nativo (watcher.cs, con
 // SetWindowPos, porque Electron no lo puede volver a poner cuando Windows se lo quita); aquí solo se restaura si se minimiza.
 let onTopTimer = null, onTopLogAt = 0;
 function keepOnTop() {
   const wins = new Set();
-  if (sharedWin && !sharedWin.isDestroyed()) wins.add(sharedWin);
+  for (const e of shared.values()) if (e.win && !e.win.isDestroyed()) wins.add(e.win);
   for (const p of pets.values()) if (p.win && !p.win.isDestroyed() && !p.shared) wins.add(p.win);
   for (const w of wins) {
     try {
@@ -391,17 +409,32 @@ function keepOnTop() {
     } catch (_) { /* nada */ }
   }
 }
+// el cursor salió de la ventana de una pantalla: se avisa a su página (si se sale de golpe, ella no se entera: sigue creyendo que
+// el cursor está encima de un Clawd o del chat, y el chat no se cierra)
+setInterval(() => {
+  try {
+    const pt = screen.getCursorScreenPoint();
+    for (const e of shared.values()) {
+      if (!e.ready || !e.win || e.win.isDestroyed()) continue;
+      const r = e.rect;
+      const inside = pt.x >= r.x && pt.x < r.x + r.width && pt.y >= r.y && pt.y < r.y + r.height;
+      if (!inside && e.cursorIn !== false) e.win.webContents.send('cursor:out');
+      e.cursorIn = inside;
+    }
+  } catch (_) { /* nada */ }
+}, 120);
 function armOnTop(win) {
   const back = () => setTimeout(() => { try { if (!win.isDestroyed() && win.isMinimized()) { win.showInactive(); if (win.isMinimized()) win.restore(); } } catch (_) { /* nada */ } }, 30);
   win.on('minimize', back);
   if (!onTopTimer) onTopTimer = setInterval(keepOnTop, 1000);
 }
-function ensureShared() {
-  if (sharedWin && !sharedWin.isDestroyed()) return sharedWin;
-  sharedRect = sharedBounds();
-  sharedReady = false;
+function ensureShared(d) {
+  let e = shared.get(d.id);
+  if (e && e.win && !e.win.isDestroyed()) return e;
+  const rect = sharedBounds(d);
+  e = { id: d.id, rect, ready: false, reset: false, win: null };
   const win = new BrowserWindow({
-    ...sharedRect,
+    ...rect,
     frame: false, transparent: true, backgroundColor: '#00000000', hasShadow: false,
     resizable: false, maximizable: false, minimizable: false, fullscreenable: false,
     alwaysOnTop: true, skipTaskbar: true, show: false, focusable: true, title: APP_NAME, icon: ICON,
@@ -411,67 +444,109 @@ function ensureShared() {
       backgroundThrottling: false, spellcheck: false, zoomFactor: Z(),
     },
   });
+  e.win = win;
   win.setAlwaysOnTop(true, 'floating');
   armOnTop(win);
   win.setIgnoreMouseEvents(true, { forward: true });
   win.loadFile(path.join(__dirname, 'index.html'));
-  win.webContents.on('console-message', (_e, level, message, line) => { if (level >= 3 || OPTS.trace) log(`renderer(compartida)[${level}]: ${message} (línea ${line})`); });
-  win.webContents.on('render-process-gone', (_e, d) => log(`renderer compartido cayó: ${d.reason}`));
+  win.webContents.on('console-message', (_e, level, message, line) => { if (level >= 3 || OPTS.trace) log(`renderer(compartida ${d.id})[${level}]: ${message} (línea ${line})`); });
+  win.webContents.on('render-process-gone', (_e, info) => log(`renderer compartido ${d.id} cayó: ${info.reason}`));
   win.webContents.on('did-finish-load', () => { try { win.webContents.setZoomFactor(Z()); } catch (_) { /* nada */ } });
   win.once('ready-to-show', () => { if (!win.isDestroyed()) win.showInactive(); });
   win.on('closed', () => {
-    if (sharedWin !== win) return;
-    sharedWin = null; sharedReady = false;
+    if (shared.get(d.id) !== e) return;
+    shared.delete(d.id);
     for (const p of [...pets.values()]) if (p.shared && p.win === win) { stopEntranceWalk(p); stopMove(p); endSocialOf(p); pets.delete(p.id); p.win = null; }
     refreshTray();
   });
-  sharedWin = win;
-  log(`ventana compartida (barra de tareas): ${sharedRect.width}x${sharedRect.height} en ${sharedRect.x},${sharedRect.y}`);
-  return win;
+  shared.set(d.id, e);
+  log(`ventana compartida (pantalla ${d.id}): ${rect.width}x${rect.height} en ${rect.x},${rect.y}`);
+  return e;
 }
+// una ventana por cada pantalla desde el principio (así pasar de una a otra no espera a que cargue)
+function ensureAllShared() { for (const d of screen.getAllDisplays()) ensureShared(d); }
 function layoutShared() {
-  if (!sharedWin || sharedWin.isDestroyed()) return;
-  sharedRect = sharedBounds();
-  placeReset = true;                      // cambió el origen de la página: los Clawds se recolocan sin deslizarse
-  try { sharedWin.setBounds(sharedRect); } catch (e) { log('ventana compartida: ' + e); }
+  for (const e of [...shared.values()]) {
+    if (!e.win || e.win.isDestroyed()) continue;
+    const d = displayById(e.id);
+    if (!d) continue;
+    e.rect = sharedBounds(d);
+    e.reset = true;                      // cambió el origen de la página: los Clawds se recolocan sin deslizarse
+    try { e.win.setBounds(e.rect); } catch (err) { log('ventana compartida: ' + err); }
+  }
   for (const p of pets.values()) if (p.shared && p.alive) queuePlace(p);
   groupKey = '';
 }
-function closeShared() {
-  if (sharedWin && !sharedWin.isDestroyed()) { const w = sharedWin; sharedWin = null; sharedReady = false; w.destroy(); }
-  sharedWin = null; sharedReady = false;
+// aparece o desaparece una pantalla: ventana nueva, o sus Clawds pasan a la principal
+function syncDisplays() {
+  if (!shared.size) return;
+  const prim = screen.getPrimaryDisplay();
+  for (const e of [...shared.values()]) {
+    if (displayById(e.id)) continue;
+    for (const p of [...pets.values()]) if (p.shared && p.alive && p.dispId === e.id) moveToDisplay(p, prim);
+    shared.delete(e.id);
+    try { e.win.destroy(); } catch (_) { /* nada */ }
+  }
+  ensureAllShared();
+  layoutShared();
+}
+// pasa un Clawd a la ventana de otra pantalla (al arrastrarlo hasta allá)
+function moveToDisplay(p, nd) {
+  const oldId = dispOf(p).id;
+  if (oldId === nd.id) { p.dispId = nd.id; return; }
+  const oe = shared.get(oldId);
+  if (p.shared && oe && oe.ready && oe.win && !oe.win.isDestroyed()) oe.win.webContents.send('page:remove', { id: p.id });
+  const tall = p.tall;
+  p.tall = false;
+  p.dispId = nd.id;
+  const e = ensureShared(nd);
+  p.win = e.win; p.shared = true; p.removed = false; p.identityKey = '';
+  p.tall = tall;
+  if (e.ready) e.win.webContents.send('page:add', { id: p.id });
+  layoutShared();                         // recoloca a todos (la ventana de quien va por el aire sigue a pantalla completa)
+  sendIdentity(p, true);
+  log(`Clawd #${p.id} pasa a la pantalla ${nd.id}`);
+  // si lo traía arrastrado, la página nueva lo "cuelga" cuando ya lo tenga
+  if (p.drag) setTimeout(() => { if (p.alive && p.drag && p.drag.moved) p.send('drag:moving', true); }, 300);
 }
 function addToShared(p, pos) {
-  const w = ensureShared();
-  p.win = w; p.shared = true; p.removed = false;
+  const e = ensureShared(dispOf(p));
+  p.win = e.win; p.shared = true; p.removed = false;
   p.pos = [Math.round(pos.x), Math.round(pos.y)];
   p.identityKey = '';
   pets.set(p.id, p);
-  if (sharedReady) { sendShared('page:add', { id: p.id }); queuePlace(p); }
+  if (e.ready) { e.win.webContents.send('page:add', { id: p.id }); queuePlace(p); }
 }
 const placeQ = new Set();
-let placeReset = false;
 let placeT = null;
 function queuePlace(p) {
   placeQ.add(p);
   if (!placeT) placeT = setImmediate(() => {
     placeT = null;
     const z = Z();
-    const list = [...placeQ].filter((q) => q.shared && q.alive).map((q) => ({ id: q.id, x: Math.round((q.pos[0] - sharedRect.x) / z * 10) / 10, y: Math.round((q.pos[1] - sharedRect.y) / z * 10) / 10 }));
+    const byWin = new Map();
+    for (const q of placeQ) {
+      if (!q.shared || !q.alive) continue;
+      const e = shared.get(dispOf(q).id);
+      if (!e || e.win !== q.win) continue;
+      if (!byWin.has(e)) byWin.set(e, []);
+      byWin.get(e).push({ id: q.id, x: Math.round((q.pos[0] - e.rect.x) / z * 10) / 10, y: Math.round((q.pos[1] - e.rect.y) / z * 10) / 10 });
+    }
     placeQ.clear();
-    if (list.length) { sendShared('page:place', { list, reset: placeReset }); placeReset = false; }
+    for (const [e, list] of byWin) if (e.ready && !e.win.isDestroyed()) { e.win.webContents.send('page:place', { list, reset: e.reset }); e.reset = false; }
   });
 }
 // la página avisa que ya cargó: qué Clawds le tocan
-ipcMain.handle('page:init', (e) => {
-  if (sharedWin && !sharedWin.isDestroyed() && e.sender === sharedWin.webContents) {
-    sharedReady = true;
-    const ids = [...pets.values()].filter((p) => p.shared && p.alive).map((p) => p.id);
+ipcMain.handle('page:init', (ev) => {
+  const e = [...shared.values()].find((x) => x.win && !x.win.isDestroyed() && x.win.webContents === ev.sender);
+  if (e) {
+    e.ready = true;
+    const ids = [...pets.values()].filter((p) => p.shared && p.alive && p.win === e.win).map((p) => p.id);
     for (const id of ids) pets.get(id).identityKey = '';
     setTimeout(() => { for (const id of ids) { const p = pets.get(id); if (p) queuePlace(p); } groupKey = ''; }, 0);
     return { shared: true, mode: 'taskbar', ids };
   }
-  const p = [...pets.values()].find((q) => !q.shared && q.win && !q.win.isDestroyed() && q.win.webContents === e.sender);
+  const p = [...pets.values()].find((q) => !q.shared && q.win && !q.win.isDestroyed() && q.win.webContents === ev.sender);
   return { shared: false, mode: 'taskbar', ids: p ? [p.id] : [] };
 });
 
@@ -479,7 +554,7 @@ ipcMain.handle('page:init', (e) => {
 function overlaps(x, y, except) {
   const { w } = dims();
   return livePets().some((q) => {
-    if (q === except || !q.alive) return false;
+    if (q === except || !q.alive || dispOf(q).id !== dispOf(except).id) return false;
     // si viene llegando, cuenta el lugar a donde va (no donde va pasando)
     const [qx, qy] = q.entranceInfo && q.spot ? [q.spot.x, q.spot.y] : posOf(q);
     const fq = qx + petOff(q), fx = x + petOff(except);
@@ -488,7 +563,7 @@ function overlaps(x, y, except) {
 }
 function spotFor(p) {
   const rec = recOf(p);
-  const g = taskbarGeom();
+  const g = taskbarGeom(p);
   const y = g.top - dims().h;
   let x = Number.isFinite(rec.taskbar && rec.taskbar.left) ? rec.taskbar.left
     : (!p.sid || livePets().filter((q) => q !== p).length === 0) && Number.isFinite(cfg.taskbar.left) ? cfg.taskbar.left : g.maxX - zr(40);
@@ -502,7 +577,7 @@ function spotNear(p, from) {
   const taken = livePets().filter((q) => q !== p && q.helper && q.helperOf === from).map((q) => (q.spot ? q.spot.x : posOf(q)[0]));
   const gap = zr(92);
   const free = (x) => !taken.some((t) => Math.abs(t - x) < gap / 2);
-  const g = taskbarGeom();
+  const g = taskbarGeom(p);
   const y = g.top - dims().h;
   for (let k = 1; k <= 8; k++) for (const sgn of [1, -1]) {
     const { x } = winForFeet(p, f.x + sgn * k * gap, f.y);
@@ -516,9 +591,9 @@ function savePos(p) {
   if (SHOT || !p.alive || p.walking || p.entranceInfo || p.move || p.social) return;
   const [x] = posOf(p);
   const rec = recOf(p);
-  rec.taskbar = { left: x };
+  rec.taskbar = { left: x, disp: dispOf(p).id };
   p.homeX = x;
-  if (p === leadPet()) cfg.taskbar = { left: x };
+  if (p === leadPet()) cfg.taskbar = { left: x, disp: dispOf(p).id };
   rec.seen = Date.now();
   saveCfg();
 }
@@ -526,7 +601,7 @@ function savePos(p) {
 function taskbarSide(p) {
   if (!p.alive) return 'right';
   const [x] = posOf(p);
-  const b = screen.getPrimaryDisplay().bounds;
+  const b = dispOf(p).bounds;
   return x + dims().w / 2 < b.x + b.width / 2 ? 'left' : 'right';
 }
 
@@ -534,6 +609,11 @@ function createPetWindow(p, entrance, o = {}) {
   const { w, h } = dims();
   p.entranceInfo = null;
   p.poofIn = false;
+  if (p.dispId == null) {            // en qué pantalla vive: la guardada (si existe), la de quien lo llama (ayudantes) o la principal
+    const want = o.near ? dispOf(o.near).id : (recOf(p).taskbar && recOf(p).taskbar.disp);
+    p.dispId = want != null && displayById(want) ? want : screen.getPrimaryDisplay().id;
+  }
+  if (isShared()) ensureAllShared();
   let pos;
   if (SHOT) {
     pos = { x: -3000, y: 100 };
@@ -615,11 +695,10 @@ function destroyPet(p) {
   endSocialOf(p);
   if (p.drag) { clearInterval(p.drag.timer); p.drag = null; }
   const wasShared = p.shared;
-  if (p.alive) { saveCfg(); if (p.shared) { sendShared('page:remove', { id: p.id }); p.removed = true; } else p.win.destroy(); }
+  if (p.alive) { saveCfg(); if (p.shared) { try { p.win.webContents.send('page:remove', { id: p.id }); } catch (_) { /* nada */ } p.removed = true; } else p.win.destroy(); }
   p.win = null; p.shared = false;
   pets.delete(p.id);
-  if (p.tall) { p.tall = false; if (sharedWin) layoutShared(); }
-  if (wasShared && ![...pets.values()].some((q) => q.shared)) closeShared();
+  if (p.tall) { p.tall = false; layoutShared(); }
   refreshTray();
 }
 // se despide con la manita y se va
@@ -755,8 +834,10 @@ ipcMain.handle('drag:start', (ev, id) => {
     const dx = pt.x - d.sx, dy = pt.y - d.sy;
     if (!d.moved && Math.abs(dx) + Math.abs(dy) > 4) { d.moved = true; p.send('drag:moving', true); }
     if (d.moved) {
-      // se mueve por toda la pantalla (hasta arriba); si lo sueltas arriba, cae con paracaídas a la barra de tareas
-      const g = taskbarGeom();
+      // se mueve por toda la pantalla (hasta arriba y a otras pantallas); si lo sueltas arriba, cae con paracaídas a la barra de tareas
+      const nd = screen.getDisplayNearestPoint(pt);
+      if (nd.id !== dispOf(p).id) moveToDisplay(p, nd);
+      const g = taskbarGeom(p);
       const baseY = g.top - dims().h;
       const ny = clamp(d.wy + dy, g.b.y - dims().h + zr(70), baseY);
       if (ny < baseY - 4) setTall(p, true);
@@ -769,13 +850,13 @@ ipcMain.handle('drag:start', (ev, id) => {
   }, 16);
 });
 ipcMain.handle('drag:end', (ev, id) => {
-  const p = petOf(ev, id);
+  const p = petOfAny(ev, id);
   if (!p || !p.drag) return false;
   clearInterval(p.drag.timer);
   const d = p.drag;
   p.drag = null;
   if (d.moved) {
-    const g = taskbarGeom();
+    const g = taskbarGeom(p);
     const baseY = g.top - dims().h;
     const [x, y] = posOf(p);
     if (y < baseY - zr(30)) { startFall(p); return true; }      // lo soltaste arriba: cae con paracaídas
@@ -1180,8 +1261,8 @@ function sendIdentity(p, force) {
 let dumpN = 0;
 // ---------- chat grupal: los Clawds, sus pláticas y lo que dicen en sus sesiones ----------
 let groupDirty = true, groupKey = '';
-function groupPos() {
-  const g = taskbarGeom();
+function groupPos(id) {
+  const g = taskbarGeom(displayById(id) || undefined);
   return { right: 10, bottom: 52 + Math.round((g.winBottom - g.top) / Z()) };   // sube con la barra
 }
 function sendGroup() {
@@ -1223,11 +1304,12 @@ function sendGroup() {
     }
   }
   feed.sort((a, b) => a.ts - b.ts);
-  const out = { pets: petsInfo, feed: feed.slice(-50), pos: groupPos() };
-  const k = JSON.stringify(out);
+  const base = { pets: petsInfo, feed: feed.slice(-50) };
+  const msgs = [...shared.values()].filter((e) => e.ready && e.win && !e.win.isDestroyed()).map((e) => [e, { ...base, pos: groupPos(e.id) }]);
+  const k = JSON.stringify(msgs.map(([e, o]) => [e.id, o]));
   if (k === groupKey && !groupDirty) return;
   groupKey = k; groupDirty = false;
-  sendShared('page:group', out);
+  for (const [e, o] of msgs) e.win.webContents.send('page:group', o);
 }
 function managerTick() {
   let list = [];
@@ -1244,7 +1326,7 @@ function managerTick() {
       p.mode = s.mode; p.modeSince = now;
       if (s.mode === 'done' && (was === 'working' || was === 'thinking')) onFinished(p);
       if (URGENT.has(s.mode) && p.social) abortSocial(p.social, 'trabajo');
-      if (URGENT.has(s.mode) && p.move && !p.move.keep) stopMove(p, true);
+      if (URGENT.has(s.mode) && p.move && !p.move.keep && p.move.kind !== 'fall') stopMove(p, true);   // (la caída en paracaídas nunca se corta)
     }
     p.send('status', s);
     sendIdentity(p);
@@ -1256,7 +1338,7 @@ function managerTick() {
       return `#${p.id}${p === leadPet() ? '*' : ''} ${p.sid ? p.sid.slice(0, 8) : 'anfitrión'} ${recOf(p).name} ${p.mode} pies=${Math.round(f.x)},${Math.round(f.y)} esc=${p.scaleNow.toFixed(2)}${p.leaving ? ' (saliendo)' : ''}${p.social ? ' [' + p.social.kind + ']' : ''}${p.move ? ' (moviéndose)' : ''}`;
     }).join(' | '));
   }
-  try { if (sharedWin && sharedReady) sendGroup(); } catch (e) { log('chat grupal: ' + e); }
+  try { if ([...shared.values()].some((e) => e.ready)) sendGroup(); } catch (e) { log('chat grupal: ' + e); }
   try { wanderTick(now); socialTick(now); } catch (e) { log('convivencia: ' + (e && e.stack ? e.stack.split('\n').slice(0, 3).join(' | ') : e)); }
 }
 setInterval(managerTick, 600);
@@ -1282,7 +1364,7 @@ function shakeCheck(p, d, pt) {
 }
 // lo soltaron arriba: baja despacio con paracaídas (rápido no, para que no estorbe en la pantalla) hasta la barra de tareas
 function startFall(p) {
-  const g = taskbarGeom();
+  const g = taskbarGeom(p);
   const [x, y] = posOf(p);
   const y1 = g.top - dims().h;
   const dur = clamp((y1 - y) / 330 * 1000, 1300, 3800);
@@ -1364,7 +1446,7 @@ function wanderTick(now) {
       if (!p.tallSince) p.tallSince = now;
       else if (now - p.tallSince > 1800) {
         p.tallSince = 0;
-        const g = taskbarGeom();
+        const g = taskbarGeom(p);
         moveWin(p, posOf(p)[0], g.top - dims().h);
         p.send('chute', { on: false });
         p.send('drag:moving', false);
@@ -1379,7 +1461,7 @@ function wanderTick(now) {
     p.nextWander = now + 9000 + Math.random() * 9000 + live.length * 1500;
     if (Math.random() < 0.45) continue;                            // a veces mejor se queda donde está
     const [x, y] = posOf(p);
-    const g = taskbarGeom();
+    const g = taskbarGeom(p);
     const home = Number.isFinite(p.homeX) ? p.homeX : x;
     const span = zr(live.length > 1 ? 115 : 230);
     let tx = null;
@@ -1430,7 +1512,8 @@ function socialTick(now) {
   if (Math.random() > 0.5 / Math.max(1, n - 1)) return;
   const a = free[Math.floor(Math.random() * free.length)];
   const fa = feetOf(a);
-  const b = free.filter((q) => q !== a).sort((q, r) => Math.abs(feetOf(q).x - fa.x) - Math.abs(feetOf(r).x - fa.x))[0];
+  const b = free.filter((q) => q !== a && dispOf(q).id === dispOf(a).id).sort((q, r) => Math.abs(feetOf(q).x - fa.x) - Math.abs(feetOf(r).x - fa.x))[0];
+  if (!b) return;                       // solo conviven los que están en la misma pantalla
   let kind = pickKind();
   const gap = cfg.social.minGapMs + Math.random() * (cfg.social.maxGapMs - cfg.social.minGapMs);
   socialNext = now + gap * (1 + 0.35 * Math.max(0, n - 2));
@@ -1468,7 +1551,7 @@ async function startSocial(a, b, kind) {
     const near = { x: fb.x - dir * zr(64) * Math.max(a.scaleNow, b.scaleNow), y: fb.y };
     const w = winForFeet(a, near.x, near.y);
     startMove(a, {
-      kind: 'walk', x1: clamp(w.x, taskbarGeom().minX, taskbarGeom().maxX), y1: posOf(a)[1],
+      kind: 'walk', x1: clamp(w.x, taskbarGeom(a).minX, taskbarGeom(a).maxX), y1: posOf(a)[1],
       speed: zr(60),
       onArrive: () => {
         if (!socials.has(s)) return;
@@ -1477,7 +1560,7 @@ async function startSocial(a, b, kind) {
         if (kind === 'jump') {
           // brinca por encima del otro y cae del otro lado
           const land = winForFeet(a, fb.x + dir * zr(64) * Math.max(a.scaleNow, b.scaleNow), fb.y);
-          const g = taskbarGeom();
+          const g = taskbarGeom(a);
           a.send('social', { act: 'jump', ms: 900 });
           startMove(a, {
             kind: 'arc', x1: clamp(land.x, g.minX, g.maxX), y1: posOf(a)[1],
@@ -1511,7 +1594,7 @@ function hopDown(s, then) {
   const f = b && b.alive ? feetOf(b) : feetOf(a);
   const dir = Math.random() < 0.5 ? -1 : 1;
   const land = winForFeet(a, f.x + dir * zr(95) * Math.max(a.scaleNow, b && b.alive ? b.scaleNow : 0), b && b.alive ? f.y : f.y + zr(40));
-  const y1 = taskbarGeom().top - dims().h;
+  const y1 = taskbarGeom(a).top - dims().h;
   a.send('social', { act: 'jump', ms: 650 });
   startMove(a, { kind: 'arc', x1: land.x, y1, height: zr(22), dur: 650, keep: true, onArrive: () => { endSocial(s); if (then) then(); } });
 }
@@ -1533,7 +1616,7 @@ function abortSocial(s, why) {
   for (const t of s.timers) clearTimeout(t);
   s.timers = [];
   if (s.rider && s.rider.alive && !s.rider.leaving) { const r = s.rider; stopMove(r); hopDown(s); return; }
-  for (const p of s.members) { if (p.move && p.move.keep && p.alive) { p.move = null; moveWin(p, posOf(p)[0], taskbarGeom().top - dims().h); } }
+  for (const p of s.members) { if (p.move && p.move.keep && p.alive) { p.move = null; moveWin(p, posOf(p)[0], taskbarGeom(p).top - dims().h); } }
   endSocial(s);
 }
 function endSocialOf(p) { if (p.social) abortSocial(p.social, 'se interrumpió'); }
@@ -2356,14 +2439,15 @@ function setWinScale(v) {
   const feet = new Map(livePets().map((p) => { stopMove(p); return [p, feetOf(p)]; }));
   cfg.winScale = v;
   saveCfg();
-  if (sharedWin && !sharedWin.isDestroyed()) { sharedWin.webContents.setZoomFactor(v); layoutShared(); }
+  for (const e of shared.values()) { try { e.win.webContents.setZoomFactor(v); } catch (_) { /* nada */ } }
+  layoutShared();
   // todas las ventanas cambian de tamaño a la vez; los Clawds quedan parados donde estaban
   for (const p of livePets()) {
     if (!p.alive) continue;
     const f = feet.get(p);
     if (!p.shared) p.win.webContents.setZoomFactor(v);
     const { w, h } = dims();
-    const pos = { x: clamp(f.x - petOff(p) - petBoxW() * CLAWD_MID, taskbarGeom().minX, taskbarGeom().maxX), y: taskbarGeom().top - h };
+    const pos = { x: clamp(f.x - petOff(p) - petBoxW() * CLAWD_MID, taskbarGeom(p).minX, taskbarGeom(p).maxX), y: taskbarGeom(p).top - h };
     if (p.shared) moveWin(p, pos.x, pos.y);
     else try { p.win.setBounds({ x: Math.round(pos.x) || 0, y: Math.round(pos.y) || 0, width: w, height: h }); } catch (e) { log('tamaño: ' + e); }
     p.homeX = pos.x;
@@ -2543,7 +2627,7 @@ ipcMain.on('menu', (e, id) => {
       label: 'Regresar a la esquinita',
       click: () => {
         stopMove(p);
-        const g = taskbarGeom(); moveWin(p, g.maxX - zr(40), g.top - dims().h); p.send('side', taskbarSide(p)); savePos(p);
+        const g = taskbarGeom(p); moveWin(p, g.maxX - zr(40), g.top - dims().h); p.send('side', taskbarSide(p)); savePos(p);
       },
     },
     { type: 'separator' },
@@ -2628,7 +2712,7 @@ function summonClawd() {
   // cuando termine de llegar, su barrita queda lista para escribirle
   setTimeout(() => {
     if (!p.alive) return;
-    if (p.shared) sendShared('page:target', { id: p.id });
+    if (p.shared) sendShared('page:target', { id: p.id }, dispOf(p).id);
     else { try { p.win.focus(); } catch (_) { /* nada */ } p.send('focus-chat'); }
   }, OPTS.noIntro ? 600 : 3200);
   return p.id;
@@ -2795,23 +2879,25 @@ app.whenReady().then(async () => {
         else if (what === 'summon') summonClawd();
         else if (what.startsWith('chat=')) { const [, sid, text] = what.split('='); const p = livePets().find((q) => (q.sid || 'anfitrion').startsWith(sid)); if (p) chatSend(p, text); }
         else if (what.startsWith('deleg=')) { const [, sid, models] = what.split('='); const p = livePets().find((q) => (q.sid || 'anfitrion').startsWith(sid)); delegate(p, models.split(',').map((m) => (m[0] === '@' ? { tarea: 'Saluda y di en una frase qué haces', modelo: 'haiku', clawd: m.slice(1) } : { tarea: 'Responde solo con la palabra listo', modelo: m }))).then((r) => log('prueba delegar: ' + r.map((x) => x.nombre + '=' + x.texto).join(' | '))).catch((e) => log('prueba delegar error: ' + e)); }
-        else if (what.startsWith('burst=')) { const [, pre, n, ms] = what.split('='); let k = 0; const t = setInterval(() => { const w = sharedWin || anyWin(); if (++k > Number(n) || !w || w.isDestroyed()) { clearInterval(t); return; } const name = pre + String(k).padStart(3, '0'); w.webContents.capturePage().then((img) => fs.writeFileSync(path.join(path.dirname(LOG), name + '.png'), img.toPNG())).catch(() => {}); }, Number(ms)); }
+        else if (what.startsWith('burst=')) { const [, pre, n, ms] = what.split('='); let k = 0; const t = setInterval(() => { const w = anySharedWin() || anyWin(); if (++k > Number(n) || !w || w.isDestroyed()) { clearInterval(t); return; } const name = pre + String(k).padStart(3, '0'); w.webContents.capturePage().then((img) => fs.writeFileSync(path.join(path.dirname(LOG), name + '.png'), img.toPNG())).catch(() => {}); }, Number(ms)); }
         else if (what === 'trainopen') { const p = livePets().find((q) => q.extra && !q.helper) || livePets()[0]; if (p) openTrain(p); }
         else if (what.startsWith('tjs64=')) { if (trainWin && !trainWin.isDestroyed()) trainWin.webContents.executeJavaScript(Buffer.from(what.slice(6), 'base64').toString('utf8')).then((r) => log('tjs: ' + JSON.stringify(r))).catch((e) => log('tjs error: ' + e)); }
         else if (what === 'hbye') { for (const q of livePets()) if (q.helper) byePet(q, 'prueba'); }
-        else if (what.startsWith('shot=')) { const w = sharedWin || anyWin(); if (w) w.webContents.capturePage().then((img) => fs.writeFileSync(path.join(path.dirname(LOG), what.slice(5) + '.png'), img.toPNG())).catch((e) => log('shot error: ' + e)); }
-        else if (what === 'gshow') { if (sharedWin) sharedWin.webContents.executeJavaScript('groupShow()').catch(() => {}); }
-        else if (what.startsWith('js64=')) { const w = sharedWin || anyWin(); const code = Buffer.from(what.slice(5), 'base64').toString('utf8'); if (w) w.webContents.executeJavaScript(code).then((r) => log('js: ' + JSON.stringify(r) + ' visible=' + w.isVisible() + ' bounds=' + JSON.stringify(w.getBounds()))).catch((e) => log('js error: ' + e)); }
-        else if (what.startsWith('js=')) { const w = sharedWin || anyWin(); if (w) w.webContents.executeJavaScript(what.slice(3)).then((r) => log('js: ' + JSON.stringify(r))).catch((e) => log('js error: ' + e)); }
+        else if (what.startsWith('shot=')) { const w = anySharedWin() || anyWin(); if (w) w.webContents.capturePage().then((img) => fs.writeFileSync(path.join(path.dirname(LOG), what.slice(5) + '.png'), img.toPNG())).catch((e) => log('shot error: ' + e)); }
+        else if (what === 'gshow') { { const w = anySharedWin(); if (w) w.webContents.executeJavaScript('groupShow()').catch(() => {}); } }
+        else if (what.startsWith('js64=')) { const w = anySharedWin() || anyWin(); const code = Buffer.from(what.slice(5), 'base64').toString('utf8'); if (w) w.webContents.executeJavaScript(code).then((r) => log('js: ' + JSON.stringify(r) + ' visible=' + w.isVisible() + ' bounds=' + JSON.stringify(w.getBounds()))).catch((e) => log('js error: ' + e)); }
+        else if (what.startsWith('js=')) { const w = anySharedWin() || anyWin(); if (w) w.webContents.executeJavaScript(what.slice(3)).then((r) => log('js: ' + JSON.stringify(r))).catch((e) => log('js error: ' + e)); }
       }, Number(ms));
     }
   }
   screen.on('display-metrics-changed', reflowScreen);
+  screen.on('display-added', reflowScreen);
+  screen.on('display-removed', reflowScreen);
 });
 // la barra que se oculta sola subió o bajó: los Clawds (y el chat) suben o bajan con ella
 function followTaskbar() {
-  const g = taskbarGeom();
   for (const p of livePets()) {
+    const g = taskbarGeom(p);
     if (p.move && !p.social) stopMove(p, true);
     const [x] = posOf(p);
     const y = g.top - dims().h;
@@ -2821,10 +2907,10 @@ function followTaskbar() {
 }
 // cambió la pantalla (o el piso): se reacomodan
 function reflowScreen() {
-  if (isShared()) layoutShared();
+  if (isShared()) syncDisplays();
   for (const p of livePets()) {
     stopMove(p);
-    const g = taskbarGeom(); const [x] = posOf(p); const y = g.top - dims().h;
+    const g = taskbarGeom(p); const [x] = posOf(p); const y = g.top - dims().h;
     // el que viene entrando se queda pegado a la orilla (solo cambia de piso); los demás, dentro de la pantalla
     if (p.entranceInfo) { p.entranceInfo.y = y; moveWin(p, x, y); } else moveWin(p, clamp(x, g.minX, g.maxX), y);
     p.send('side', taskbarSide(p));
