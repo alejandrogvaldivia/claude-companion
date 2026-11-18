@@ -234,6 +234,7 @@ function main(d) {
       s.state = 'done';
       s.activity = '¡Listo!';
       delete s.prev;
+      agentGone(sid, (o) => !o.bg);   // al terminar, los subagentes en primer plano ya acabaron aunque no avisaran
       break;
 
     case 'StopFailure':

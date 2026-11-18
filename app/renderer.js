@@ -1,5 +1,61 @@
 'use strict';
 // =====================================================================
+//  Caminar en bucle continuo
+//  El GIF "Extra-Stopped" empieza con 4 cuadros de frente (se voltea hacia la derecha) y luego camina
+//  de perfil: los cuadros 4-11 son un ciclo exacto de 8 (el 12-19 es idéntico). Si se reproduce el GIF
+//  entero, cada vuelta vuelve a girar desde el frente y se ve que "termina y empieza". Aquí se decodifican
+//  solo esos 8 cuadros y se dibujan en bucle: sin saltos, con la fase guardada (al parar y seguir, o al
+//  cambiar de dirección, continúa el mismo paso) y espejado según hacia dónde va (el GIF mira a la derecha).
+//  Si el navegador no sabe decodificar GIF por cuadros, se usa el GIF de siempre.
+// =====================================================================
+const WALKSET = { frames: null, total: 0, promise: null };
+const WALK = { t: 0, last: 0, dir: 1, from: 4, to: 12, size: 20 };    // cuadros [from, to) del GIF de 20
+function loadWalkSet(api0) {
+  if (WALKSET.promise) return WALKSET.promise;
+  WALKSET.promise = (async () => {
+    if (typeof ImageDecoder === 'undefined' || !api0.walkGif) return null;
+    const bytes = api0.walkGif();
+    if (!bytes) return null;
+    const dec = new ImageDecoder({ data: bytes, type: 'image/gif' });
+    await dec.tracks.ready;
+    if (dec.tracks.selectedTrack.frameCount !== WALK.size) { dec.close(); return null; }   // no es el GIF esperado
+    const frames = [];
+    for (let i = WALK.from; i < WALK.to; i++) {
+      const { image } = await dec.decode({ frameIndex: i });
+      // a media resolución: 8 cuadros de 2750x1850 pesarían 160 MB
+      const bmp = await createImageBitmap(image, { resizeWidth: 1100, resizeHeight: 740, resizeQuality: 'high' });
+      frames.push({ bmp, ms: Math.max(40, Math.round((image.duration || 80000) / 1000)) });
+      image.close();
+    }
+    dec.close();
+    WALKSET.total = frames.reduce((s, f) => s + f.ms, 0);
+    WALKSET.frames = frames;
+    return frames;
+  })().catch((e) => { console.error('caminar', e); return null; });
+  return WALKSET.promise;
+}
+
+// "Seguir al final" de un chat sin pelearse con la rueda. La rueda desliza suave: si en cada actualización se mide
+// "¿estás a menos de 40 px del final?", los primeros pasos de ese deslizamiento todavía cuentan como "al final" y
+// la actualización (que llega varias veces por segundo mientras Clawd escribe) te devuelve abajo y cancela el
+// deslizamiento: parecía que el chat no te dejaba subir. Aquí se recuerda la intención: si lo mueves tú (rueda,
+// barra o teclado) deja de seguir; vuelve a seguir cuando llegas de nuevo al final (o al enviar algo).
+function makeFollow(node) {
+  const f = { on: true, last: 0 };
+  node.addEventListener('scroll', () => {
+    const top = node.scrollTop;
+    if (node.scrollHeight - top - node.clientHeight < 4) f.on = true;     // llegó (o volvió) al final
+    else if (top < f.last - 1) f.on = false;                              // subió: lo movió el usuario, nosotros solo bajamos
+    f.last = top;
+  }, { passive: true });
+  node.addEventListener('wheel', (e) => { if (e.deltaY < 0) f.on = false; }, { passive: true });   // rueda hacia arriba: ya no sigas
+  // el evento 'scroll' llega un cuadro después: una actualización que caiga en medio ve que ya subió (scrollTop < el último)
+  f.stick = () => { if (node.scrollTop < f.last - 1) f.on = false; return f.on; };
+  f.jump = () => { node.scrollTop = node.scrollHeight; f.last = node.scrollTop; f.on = true; };
+  return f;
+}
+
+// =====================================================================
 //  Un Clawd (su página puede tener uno o varios: cada uno es una copia de la plantilla)
 // =====================================================================
 function createClawd(root, ID) {
@@ -7,7 +63,7 @@ const api = petApi(ID);
 const $ = (id) => root.querySelector('#' + id);
 let dead = false;
 const el = {
-  pet: $('pet'), gif: $('gif'), gif2: $('gif2'), lot: $('lottie'), lotSnooze: $('lottie-snooze'), lotStretch: $('lottie-stretch'), fx: $('fx'), strip: $('strip'),
+  pet: $('pet'), gif: $('gif'), gif2: $('gif2'), lot: $('lottie'), lotSnooze: $('lottie-snooze'), lotStretch: $('lottie-stretch'), fx: $('fx'),
   status: $('status'), dot: $('dot'), title: $('title'), sub: $('sub'), extra: $('extra'),
   talk: $('talk'), thread: $('thread'),
   ask: $('ask'), input: $('input'), send: $('btnSend'),
@@ -40,7 +96,6 @@ const IDLE_POOL = [
 ];
 const IDLE_GAP_MS = [5000, 7000];
 let DEEP_SLEEP_MS = 1 * 60 * 1000;         // tras 1 min sin nada se queda dormido (configurable)
-const BAR_HOVER_MS = 350;                   // barra de tareas: espera antes de abrir el chat
 
 // ---- capas que se cruzan con un fundido: así ningún cambio es de golpe ----
 const NC = $('nap');                        // lienzo de pixel art: dormido y caminando
@@ -152,7 +207,12 @@ function show(name, restart) {
   }
   setTimeout(lotsSettle, 340);
   if (name === 'dizzy') { stopWalk(); procStart(); fadeTo(NC); return; }
-  if (proc.raf) setTimeout(() => { if (visual !== 'dizzy') procHalt(); }, 320);
+  if (name === 'walk' && WALKSET.frames) { walkStart(); fadeTo(NC); return; }
+  if (proc.kind === 'walk') {                         // deja de caminar: corte rápido, sin que el paso se quede fantasma
+    el.pet.classList.add('cut');
+    setTimeout(() => el.pet.classList.remove('cut'), 260);
+  }
+  if (proc.raf) setTimeout(() => { if (visual !== 'dizzy' && visual !== 'walk') procHalt(); }, 320);
   if (name === 'nap' && snoozeAnim) { fadeTo(el.lotSnooze); snoozeStart(); return; }
   if (name === 'stretching' && stretchAnim) { fadeTo(el.lotStretch); stretchAnim.goToAndPlay(0, true); return; }
   if (anim && lapState !== 'off') {
@@ -467,12 +527,37 @@ function napWake(then) {
     if (f) f();
   }, 380);
 }
-function procHalt() { cancelAnimationFrame(proc.raf); proc.raf = 0; }
+function procHalt() { cancelAnimationFrame(proc.raf); proc.raf = 0; proc.kind = null; }
 function procStart() {
   cancelAnimationFrame(proc.raf);
   fitCanvas(NC); fitCanvas(OV);
   proc.t0 = performance.now();
+  proc.kind = 'dizzy';
   proc.raf = requestAnimationFrame(drawDizzy);
+}
+// caminando: bucle continuo de los 8 cuadros de perfil (ver arriba); la fase (WALK.t) no se reinicia
+function walkStart() {
+  if (proc.raf && proc.kind === 'walk') return;          // ya camina: ni se corta ni se reinicia
+  cancelAnimationFrame(proc.raf);
+  fitCanvas(NC);
+  WALK.last = 0;
+  proc.kind = 'walk';
+  proc.raf = requestAnimationFrame(drawWalk);
+}
+function drawWalk(now) {
+  const fr = WALKSET.frames;
+  const dt = WALK.last ? Math.min(0.05, (now - WALK.last) / 1000) : 0;
+  WALK.last = now;
+  WALK.t = (WALK.t + dt * 1000) % WALKSET.total;
+  if (walkDir) WALK.dir = walkDir;                       // al llegar (dir 0) conserva hacia dónde miraba
+  let i = 0, acc = 0;
+  for (; i < fr.length - 1; i++) { acc += fr[i].ms; if (WALK.t < acc) break; }
+  nctx.clearRect(0, 0, NC.width, NC.height);
+  nctx.save();
+  if (WALK.dir < 0) { nctx.translate(NC.width, 0); nctx.scale(-1, 1); }   // el GIF mira a la derecha
+  nctx.drawImage(fr[i].bmp, 0, 0, NC.width, NC.height);
+  nctx.restore();
+  proc.raf = requestAnimationFrame(drawWalk);
 }
 // de pie y mareado: se tambalea, con los ojos en espiral y las estrellitas girando en su cabeza
 function drawDizzy(now) {
@@ -530,15 +615,23 @@ function stopWalk() {
   cancelAnimationFrame(wander.raf); wander.raf = 0;
 }
 // escritorio: la ventana la mueve el proceso principal; aquí solo se anima
+// Al llegar no se detiene en seco: si en un instante echa a andar otra vez (otro destino, un giro),
+// sigue el mismo paso sin cortarse ni reiniciarse; solo se para si de verdad no hay más camino.
+let walkStopT = null;
 api.on('walk', (d) => {
-  walkDir = d.dir;
+  clearTimeout(walkStopT);
   trace(`caminar ${d.dir}`);
-  if (d.dir) { show('walk'); return; }
-  endEntrance();
-  idleNextAt = Date.now() + IDLE_GAP_MS[0];
-  visual = null;
-  tick();
+  if (d.dir) { walkDir = d.dir; show('walk'); return; }
+  walkStopT = setTimeout(() => {
+    if (dead) return;
+    walkDir = 0;
+    endEntrance();
+    idleNextAt = Date.now() + IDLE_GAP_MS[0];
+    visual = null;
+    tick();
+  }, 70);       // main manda "para" y "echa a andar" seguidos al cambiar de destino: basta un instante
 });
+loadWalkSet(api0);                                    // prepara los cuadros del paso (async; mientras tanto usa el GIF)
 
 // =====================================================================
 //  Entrada y despedida
@@ -836,7 +929,8 @@ function tick() {
   // un símbolo de plática con otro Clawd manda sobre los efectos de rato libre
   if (social.fx && now < social.fx.until && !urgent) setFx(social.fx.t, 'talk');
   else setFx(fx, cls);
-  el.pet.classList.toggle('bob', v === 'still');
+  // (antes flotaba un poquito de pie con la clase 'bob'; se quitó a propósito: de pie se queda quieto)
+  el.pet.classList.remove('bob');
 }
 function waitLoop(now) {
   const loop = LOOP_MS[visual];
@@ -1032,20 +1126,6 @@ for (const n of [el.pet, el.ask]) {
   n.addEventListener('mouseenter', () => { hovering = true; showConvo(); });
   n.addEventListener('mouseleave', () => { hovering = false; scheduleHide(); });
 }
-// barra de tareas: toda la franja abre el chat al pasar el cursor (con una espera cortita)
-let stripT = null;
-let stripIn = false;
-el.strip.addEventListener('mouseenter', () => {
-  stripIn = true;
-  if (wander.target !== null) wander.target = wander.x;   // si venía caminando (o entrando), se queda ahí
-  if (PAGE.onHover) PAGE.onHover();
-});
-el.strip.addEventListener('mouseleave', () => { stripIn = false; if (PAGE.onHover) PAGE.onHover(); });
-el.strip.addEventListener('mouseenter', () => {
-  clearTimeout(stripT);
-  stripT = setTimeout(() => { hovering = true; showConvo(); }, BAR_HOVER_MS);
-});
-el.strip.addEventListener('mouseleave', () => { clearTimeout(stripT); hovering = false; scheduleHide(); });
 for (const n of [el.talk, $('work')]) {
   n.addEventListener('mouseenter', () => { talkHover = true; clearTimeout(hideT); });   // se queda quieto para leer, sin abrir el chat
   n.addEventListener('mouseleave', () => { talkHover = false; scheduleHide(); });
@@ -1066,13 +1146,12 @@ function startDrag(e) {
   window.addEventListener('mouseup', up);
 }
 el.pet.addEventListener('mousedown', startDrag);
-el.strip.addEventListener('mousedown', startDrag);
 el.pet.addEventListener('dblclick', () => {
   if (chatBusy || st.mode === 'working' || st.mode === 'thinking' || entrance.active) return;
   stopWalk();
   afterLaptop(() => playOnce('racing', null, { idle: true }));
 });
-for (const n of [el.pet, el.strip, el.thread]) n.addEventListener('contextmenu', (e) => { e.preventDefault(); api.menu(); });
+for (const n of [el.pet, el.thread]) n.addEventListener('contextmenu', (e) => { e.preventDefault(); api.menu(); });
 
 el.input.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMsg(); }
@@ -1142,8 +1221,9 @@ let answerText = '';
 let cur = null;                  // el globo de Claude que se está escribiendo
 let threadDismissed = false;     // la cerraste con la ×: no reaparece hasta el siguiente mensaje
 const DOTS = '<span class="dots"><i></i><i></i><i></i></span>';
-function nearBottom() { return el.thread.scrollHeight - el.thread.scrollTop - el.thread.clientHeight < 40; }
-function toBottom() { el.thread.scrollTop = el.thread.scrollHeight; }
+const threadFollow = makeFollow(el.thread);
+function nearBottom() { return threadFollow.stick(); }
+function toBottom() { threadFollow.jump(); }
 function openTalk(pop) {
   clearTimeout(talkFadeT);
   talkVisible = true;
@@ -1444,7 +1524,7 @@ function destroy() {
 }
 // su luz: ocupado (trabajando o contestándote) pulsa, dormido respira, si no, quieta
 const glow = () => (poofing || hang.on ? 'hidden' : st.mode === 'attention' && !leaving ? 'attn' : busyNow() || chatBusy ? 'busy' : visual === 'nap' ? 'sleep' : 'idle');
-return { root, emit: api._emit, destroy, socialOk, glow, stripIn: () => stripIn, hovering: () => hovering || talkHover, leave: () => { hovering = false; talkHover = false; scheduleHide(); } };
+return { root, emit: api._emit, destroy, socialOk, glow, hovering: () => hovering || talkHover, leave: () => { hovering = false; talkHover = false; scheduleHide(); } };
 } // fin de createClawd
 
 // =====================================================================
@@ -1613,6 +1693,7 @@ const gEl = {
   to: document.getElementById('gToBtn'), toName: document.getElementById('gToName'),
   list: document.getElementById('gList'), nu: document.getElementById('gNew'), mic: document.getElementById('gMic'),
 };
+const gFollow = makeFollow(gEl.feed);
 const petInfo = (id) => G.pets.find((p) => p.id === id);
 function tintOf(p) {
   if (!p) return 'none';
@@ -1656,7 +1737,6 @@ function anchorGroup() {
 const held = new Set();
 function updateHolds() {
   const want = new Set();
-  for (const [id, p] of PAGE.pets) if (p.stripIn && p.stripIn()) want.add(id);
   if (G.anchor && gEl.box.classList.contains('show')) want.add(G.anchor);
   for (const id of want) if (!held.has(id)) { held.add(id); api0.hold(id, true); }
   for (const id of [...held]) if (!want.has(id)) { held.delete(id); api0.hold(id, false); }
@@ -1719,7 +1799,7 @@ document.getElementById('gTabs').addEventListener('click', (e) => {
   if (!b || G.tab === b.dataset.tab) return;
   G.tab = b.dataset.tab;
   renderGroup(true);
-  gEl.feed.scrollTop = gEl.feed.scrollHeight;
+  gFollow.jump();
 });
 function renderGroup(force) {
   if (!PAGE.shared) return;
@@ -1727,14 +1807,33 @@ function renderGroup(force) {
   renderTabs();
   if (G.listOpen) renderList();
   const items = feedItems();
-  const key = JSON.stringify(items.map((i) => [i.k, i.text && i.text.length, i.tool])) + JSON.stringify(G.pets.map((p) => [p.id, p.name, p.hue, p.chatModel, p.model])) + G.tab + currentTarget();
+  const sigs = items.map((i) => JSON.stringify([i.text && i.text.length, i.tool]));
+  const shape = JSON.stringify(items.map((i) => i.k)) + JSON.stringify(G.pets.map((p) => [p.id, p.name, p.hue, p.chatModel, p.model])) + G.tab + currentTarget();
+  const key = shape + sigs.join('');
   if (!force && (key === G.key || G.openSay)) return;
   G.key = key;
-  const stick = gEl.feed.scrollHeight - gEl.feed.scrollTop - gEl.feed.clientHeight < 40;
+  const stick = gFollow.stick();
+  // Mientras Clawd escribe, solo cambia el texto de su última burbuja (varias veces por segundo): se cambia solo esa burbuja
+  // en lugar de rehacer todo el chat; así no se interrumpe el deslizamiento de la rueda ni se pierde dónde ibas leyendo.
+  if (!force && G.shape === shape && G.sigs && G.sigs.length === items.length && gEl.feed.children.length === items.length) {
+    items.forEach((i, idx) => {
+      if (G.sigs[idx] === sigs[idx]) return;
+      const t = document.createElement('div');
+      t.innerHTML = itemHtml(i, '');
+      gEl.feed.replaceChild(t.firstElementChild, gEl.feed.children[idx]);
+    });
+    G.sigs = sigs;
+    if (stick) gFollow.jump();
+    return;
+  }
+  G.shape = shape; G.sigs = sigs;
   const known = new Set([...gEl.feed.children].map((n) => n.dataset.k));
-  gEl.feed.innerHTML = items.map((i) => {
+  gEl.feed.innerHTML = items.map((i) => itemHtml(i, known.has(i.k) ? '' : ' pop')).join('');
+  if (stick || force) gFollow.jump();
+}
+function itemHtml(i, pop) {
+  {
     const p = petInfo(i.id) || { name: i.name || 'Clawd' };
-    const pop = known.has(i.k) ? '' : ' pop';
     if (i.who === 'typing') {
       return `<div class="gmsg gtype${pop}" data-k="${i.k}">${avHtml(p)}<div class="gcol"><span class="gname">${esc0(p.name)} <i>· escribiendo…</i></span>` +
         `<div class="gb"><span class="dots"><i></i><i></i><i></i></span>${i.tool ? `<span class="act">${esc0(i.tool)}</span>` : ''}</div></div></div>`;
@@ -1745,8 +1844,8 @@ function renderGroup(force) {
       return `<div class="gmsg claude${pop}" data-k="${i.k}"><span class="av" style="--tint:none"></span><div class="gcol">` +
         `<span class="gname">${esc0(i.from)} <i>→ le encarga a ${esc0(p.name)}</i></span><div class="gb">${esc0(i.text)}</div></div></div>`;
     }
-    if (i.who === 'you') {
-      return `<div class="gmsg you${pop}" data-k="${i.k}"><div class="gcol"><span class="gto">a ${esc0(p.name)}</span>` +
+    if (i.who === 'you' || i.who === 'ysay') {   // ysay: lo que tú escribiste en su sesión de Claude (no en este chat)
+      return `<div class="gmsg you${pop}" data-k="${i.k}"><div class="gcol"><span class="gto">${i.who === 'ysay' ? `a ${esc0(p.name)} · en su sesión` : `a ${esc0(p.name)}`}</span>` +
         `<div class="gb" style="--ctint:${tintOf(p)}">${esc0(i.text)}</div></div></div>`;
     }
     const label = i.who === 'say' ? (p.model || '') : (p.chatModel || '');
@@ -1756,8 +1855,7 @@ function renderGroup(force) {
     else if (i.who === 'live') bub = `<div class="gb" style="--ctint:${tintOf(p)}">${i.text ? mdG(i.text) + '<span class="caret"></span>' : ''}${!i.text || i.tool ? `<div class="tool">${livePill(i.tool || 'Pensando…', i.t0)}</div>` : ''}</div>`;
     else bub = `<div class="gb">${i.err ? `<span class="err">${esc0(i.text)}</span>` : mdG(i.text) + fileChips(i.files)}${i.last ? `<div class="gfoot">${p.hasSession ? `<button class="to-session" data-tosession="${i.id}" title="Abre su sesión en Claude Desktop con tu mensaje y esta respuesta ya pegados (sin enviar)">Mandar a su sesión &#x21AA;</button>` : ''}<button class="open-app" data-open="${i.id}" title="Abrir esta plática, con todo su historial, en la app de Claude">Abrir en Claude &#x2197;</button></div>` : ''}</div>`;
     return `<div class="gmsg ${i.who === 'say' ? 'gsay' : i.who}${pop}" data-k="${i.k}">${avHtml(p)}<div class="gcol">${head}${bub}</div></div>`;
-  }).join('');
-  if (stick || force) gEl.feed.scrollTop = gEl.feed.scrollHeight;
+  }
 }
 gEl.feed.addEventListener('mouseover', (e) => {
   const b = e.target.closest('.gmsg.gsay .gb');

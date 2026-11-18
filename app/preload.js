@@ -17,6 +17,8 @@ contextBridge.exposeInMainWorld('companion', {
   setInteractive: (on) => ipcRenderer.send('interactive', on),
   on: (ch, fn) => ipcRenderer.on(ch, (_e, data) => fn(data)),
   assetUrl: (name) => pathToFileURL(path.join(ASSETS, name)).href,
+  // bytes del GIF de caminar: la página decodifica solo los cuadros del paso para repetirlos sin cortes
+  walkGif: () => { try { return fs.readFileSync(path.join(ASSETS, 'Extra-Stopped.gif')); } catch (_) { return null; } },
   // ---- de cada Clawd ----
   getOpts: (id) => ipcRenderer.invoke('opts:get', id),
   dragStart: (id) => ipcRenderer.invoke('drag:start', id),

@@ -43,6 +43,8 @@ const pkg = JSON.parse(fs.readFileSync(pkgFile, 'utf8'));
 const version = bump(pkg.version, how);
 const tag = `v${version}`;
 if (out('git', ['tag', '--list', tag])) throw new Error(`Ya existe la versión ${tag}.`);
+// el commit de la versión usa "git add -A": con cambios a medias, se irían al lanzamiento
+if (out('git', ['status', '--porcelain'])) throw new Error('Hay cambios sin guardar en git: haz commit (o guárdalos aparte) antes de publicar.');
 console.log(`\n== Claude Companion ${pkg.version} → ${version} ==\n`);
 
 pkg.version = version;

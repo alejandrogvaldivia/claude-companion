@@ -160,7 +160,7 @@ function readSettings() {
 }
 function writeSettings(s) {
   fs.mkdirSync(path.dirname(SETTINGS), { recursive: true });
-  // respaldo (uno por día), por si acaso
+  // respaldo del original (solo el primero, para no pisarlo con versiones ya modificadas), por si acaso
   if (fs.existsSync(SETTINGS)) {
     const bak = `${SETTINGS}.antes-de-claude-companion`;
     if (!fs.existsSync(bak)) fs.copyFileSync(SETTINGS, bak);

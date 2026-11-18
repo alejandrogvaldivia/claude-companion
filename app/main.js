@@ -6,7 +6,7 @@
 // Modos: "escritorio" (una ventana por Clawd), "escritorio en grupo" (juntitos, pasean y
 // conviven) y "barra de tareas" (minis que pasean sobre la barra).
 'use strict';
-const { app, BrowserWindow, ipcMain, screen, Menu, Tray, shell, clipboard } = require('electron');
+const { app, BrowserWindow, ipcMain, screen, Menu, Tray, shell, clipboard, powerMonitor } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -180,7 +180,15 @@ app.setAppUserModelId(APP_ID);
 // =====================================================================
 // si venías del prototipo (~/.claude/mascota), sus datos se pasan aquí la primera vez
 if (!SHOT && !process.env.COMPANION_CFG) setup.migrateOld(log);
-function readCfg() { try { return JSON.parse(fs.readFileSync(CFG, 'utf8').replace(/^﻿/, '')); } catch (_) { return {}; } }
+const parseCfg = (f) => JSON.parse(fs.readFileSync(f, 'utf8').replace(/^﻿/, ''));
+let cfgBackedUp = false;   // el respaldo (config.json.bak) se hace una vez por arranque, antes de la primera escritura
+function readCfg() {
+  try { return parseCfg(CFG); } catch (e) {
+    if (!fs.existsSync(CFG)) return {};
+    // dañado: se usa el respaldo (y no se pisa con uno vacío)
+    try { const b = parseCfg(CFG + '.bak'); cfgBackedUp = true; console.error('config dañada, uso el respaldo: ' + e.message); return b; } catch (_) { cfgBackedUp = true; try { fs.copyFileSync(CFG, CFG + '.dañada'); } catch (_e) { /* nada */ } return {}; }
+  }
+}
 const num = (v, d, a = -Infinity, b = Infinity) => (Number.isFinite(Number(v)) && v !== null && v !== '' ? Math.max(a, Math.min(b, Number(v))) : d);
 const cfg0 = readCfg();
 const T0 = cfg0.timing || {};
@@ -220,7 +228,10 @@ function saveNow() {
     const old = Date.now() - 30 * 86400000;
     // (menos los que entrenaste o fijaste: esos no se olvidan)
     for (const [k, v] of Object.entries(cfg.clawds)) if (!v || ((v.seen || 0) < old && !v.role && !v.pinned)) delete cfg.clawds[k];
-    fs.writeFileSync(CFG, JSON.stringify({ v: 5, ...cfg }, null, 2));
+    // primero a un archivo aparte y luego se cambia de nombre: si la app se cierra a media escritura, el bueno sigue entero
+    if (!cfgBackedUp) { cfgBackedUp = true; try { if (parseCfg(CFG).v) fs.copyFileSync(CFG, CFG + '.bak'); } catch (_) { /* no había */ } }
+    fs.writeFileSync(CFG + '.tmp', JSON.stringify({ v: 5, ...cfg }, null, 2));
+    fs.renameSync(CFG + '.tmp', CFG);
   } catch (e) { log('config: ' + e); }
 }
 
@@ -305,14 +316,17 @@ function leadPet() {
 }
 // el chat (globitos) siempre va con el anfitrión
 // (el arrastre sigue en la página donde empezó aunque el Clawd ya haya pasado a otra pantalla)
+// quien manda debe ser la ventana del Clawd o una de las ventanas compartidas (el chat de una pantalla habla de Clawds de otra)
 function petOfAny(e, id) {
   const p = pets.get(Number(id));
   if (!p || !p.alive) return null;
-  if (p.win.webContents === e.sender) return p;
-  for (const x of shared.values()) if (x.win && x.win.webContents === e.sender) return p;
+  try {
+    if (p.win && !p.win.isDestroyed() && p.win.webContents === e.sender) return p;
+    for (const x of shared.values()) if (x.win && !x.win.isDestroyed() && x.win.webContents === e.sender) return p;
+  } catch (_) { /* ventana que ya no existe */ }
   return null;
 }
-function petOf(e, id) { const p = pets.get(Number(id)); return p && p.alive && p.win.webContents === e.sender ? p : null; }
+const petOf = petOfAny;
 const anyWin = () => { const p = leadPet() || [...pets.values()].find((q) => q.alive); return p ? p.win : null; };
 
 // identidad: nombre y color por sesión (y lo que elegiste para su proyecto)
@@ -894,156 +908,48 @@ function readAgents(sid, now) {
   }
   return out.sort((a, b) => a.t0 - b.t0);
 }
+const sesCache = new Map();   // archivo → { m: fecha de modificación, o: lo que traía }: solo se vuelve a leer lo que cambió
+let sesSweepAt = 0;
 function readSessions() {
   const now = Date.now();
   const out = [];
-  let files = [];
-  try { files = fs.readdirSync(DIR_SES).filter((f) => f.endsWith('.json')); } catch (_) { return out; }
+  let names = [];
+  try { names = fs.readdirSync(DIR_SES); } catch (_) { return out; }
+  const files = names.filter((f) => f.endsWith('.json'));
   for (const f of files) {
     const full = path.join(DIR_SES, f);
     try {
-      const o = JSON.parse(fs.readFileSync(full, 'utf8'));
+      const m = fs.statSync(full).mtimeMs;
+      let c = sesCache.get(f);
+      if (!c || c.m !== m) { c = { m, o: JSON.parse(fs.readFileSync(full, 'utf8')) }; sesCache.set(f, c); }
+      const o = Object.assign({}, c.o);
       const age = now - Number(o.ts || 0);
-      if (age > 86400000) { try { fs.unlinkSync(full); } catch (_) { /* nada */ } continue; }
+      if (age > 86400000) { try { fs.unlinkSync(full); } catch (_) { /* nada */ } sesCache.delete(f); rmAgents(f.replace(/\.json$/, '')); continue; }
       o.age = age; o.sid = f.replace(/\.json$/, '');
       o.agents = readAgents(o.sid, now);
+      // sesión terminada o interrumpida: los subagentes en primer plano ya no pueden seguir (a veces no avisan que acabaron)
+      const parada = (o.state !== 'working' && o.state !== 'attention') || !!(o.tp && (readTranscript(o.tp) || {}).intr);
+      if (parada) o.agents = o.agents.filter((a) => a.bg);
       out.push(o);
     } catch (_) { /* archivo a medio escribir */ }
   }
+  for (const f of sesCache.keys()) if (!files.includes(f)) sesCache.delete(f);
+  for (const sid of actSeen.keys()) if (!files.includes(sid + '.json')) actSeen.delete(sid);
+  // carpetas de subagentes de sesiones que ya no existen (si Claude Code se cerró sin avisar)
+  if (now - sesSweepAt > 60000) {
+    sesSweepAt = now;
+    const live = new Set(files.map((f) => f.replace(/\.json$/, '')));
+    for (const n of names) {
+      if (!n.endsWith('.agents') || live.has(n.slice(0, -7))) continue;
+      try { if (now - fs.statSync(path.join(DIR_SES, n)).mtimeMs > 600000) rmAgents(n.slice(0, -7)); } catch (_) { /* nada */ }
+    }
+  }
   return out;
 }
+function rmAgents(sid) { try { fs.rmSync(path.join(DIR_SES, sid + '.agents'), { recursive: true, force: true }); } catch (_) { /* nada */ } }
 
-// ---------- lo que Claude va haciendo, leído del historial de la sesión (solo lectura) ----------
-// Lista de tareas (update_plan de la app, TodoWrite o TaskCreate/TaskUpdate de la terminal) y los
-// mensajes que Claude manda mientras trabaja. Se lee por partes: solo lo nuevo de cada archivo.
-const tCache = new Map();
-const TAIL_FIRST = 4 * 1024 * 1024;
-function mdPlain(t) {
-  return String(t || '')
-    .replace(/```[\s\S]*?```/g, ' ')
-    .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
-    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
-    .replace(/`([^`]*)`/g, '$1')
-    .replace(/\*\*([^*]+)\*\*|__([^_]+)__/g, '$1$2')
-    .replace(/^\s{0,3}(#{1,6}|>|[-*+]|\d+[.)])\s+/gm, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-function promptText(c) {
-  let s = '';
-  if (typeof c === 'string') s = c;
-  else if (Array.isArray(c)) {
-    if (c.some((b) => b && b.type === 'tool_result')) return '';
-    s = c.filter((b) => b && b.type === 'text').map((b) => b.text).join(' ');
-  }
-  return s.replace(/<([a-zA-Z][\w-]*)[^>]*>[\s\S]*?<\/\1>/g, ' ').replace(/<[^>]+>/g, ' ').trim();
-}
-// solo los últimos mensajes de la sesión (lo que se le pasa a la plática con su Clawd)
-function pushRecent(c, who, text) {
-  c.recent.push({ who, text: String(text).slice(0, 1200) });
-  if (c.recent.length > 16) c.recent.shift();
-}
-function applyLine(c, m) {
-  if (m.isSidechain) return;
-  if (m.type === 'user') {
-    if (m.isMeta || m.isCompactSummary) return;
-    const msg = m.message || {};
-    const pt = promptText(msg.content);
-    if (pt) { c.says = []; c.plan = []; c.turn++; pushRecent(c, 'Usuario', pt); } // mensaje tuyo: empieza otra vuelta
-    return;
-  }
-  if (m.type !== 'assistant' || !m.message || !Array.isArray(m.message.content)) return;
-  if (/^claude-/.test(String(m.message.model || ''))) c.model = m.message.model; // el modelo real de la sesión (cambia si lo cambias)
-  m.message.content.forEach((b, i) => {
-    if (!b) return;
-    if (b.type === 'text') {
-      const t = mdPlain(b.text);
-      if (t) pushRecent(c, 'Claude', t);
-      if (t) { c.says.push({ id: `${m.uuid || m.message.id}:${i}`, text: t.slice(0, 1600), ts: Date.parse(m.timestamp) || Date.now() }); if (c.says.length > 3) c.says.shift(); }
-      return;
-    }
-    if (b.type !== 'tool_use') return;
-    const inp = b.input || {};
-    const name = String(b.name || '');
-    if (/__update_plan$/.test(name)) {
-      if (Array.isArray(inp.items)) {
-        c.plan = inp.items.map((it) => ({ t: String(it.content || ''), s: it.status === 'completed' ? 'done' : it.status === 'in_progress' ? 'doing' : 'todo' }));
-      } else if (c.plan.length) {
-        if (inp.advance) {
-          const k = c.plan.findIndex((p) => p.s === 'doing');
-          if (k >= 0) c.plan[k].s = 'done';
-          const n = c.plan.findIndex((p, j) => j > k && p.s === 'todo');
-          if (n >= 0) c.plan[n].s = 'doing';
-        }
-        if (Array.isArray(inp.done)) for (const d of inp.done) if (c.plan[d - 1]) c.plan[d - 1].s = 'done';
-        if (inp.start && c.plan[inp.start - 1]) {
-          for (const p of c.plan) if (p.s === 'doing') p.s = 'done';
-          c.plan[inp.start - 1].s = 'doing';
-        }
-      }
-    } else if (/__wrap_up$/.test(name)) {
-      for (const p of c.plan) p.s = 'done';
-    } else if (name === 'TodoWrite' && Array.isArray(inp.todos)) {
-      c.plan = inp.todos.map((it) => ({ t: String(it.content || ''), s: it.status === 'completed' ? 'done' : it.status === 'in_progress' ? 'doing' : 'todo' }));
-    } else if (name === 'TaskCreate' && inp.subject) {
-      c.plan.push({ t: String(inp.subject), s: 'todo' });
-    } else if (name === 'TaskUpdate' && inp.taskId) {
-      const p = c.plan[Number(inp.taskId) - 1];
-      if (p && inp.status === 'deleted') p.gone = true;
-      else if (p && inp.status) p.s = inp.status === 'completed' ? 'done' : inp.status === 'in_progress' ? 'doing' : 'todo';
-    }
-  });
-}
-function readTranscript(tp) {
-  if (!tp) return null;
-  let size;
-  try { size = fs.statSync(tp).size; } catch (_) { return null; }
-  let c = tCache.get(tp);
-  if (!c || size < c.off) {
-    c = { off: Math.max(0, size - TAIL_FIRST), skipFirst: size > TAIL_FIRST, rest: null, plan: [], says: [], turn: 0, used: 0, model: null, recent: [] };
-    tCache.set(tp, c);
-  }
-  c.used = Date.now();
-  if (size > c.off) {
-    let buf;
-    try {
-      const fd = fs.openSync(tp, 'r');
-      buf = Buffer.alloc(size - c.off);
-      fs.readSync(fd, buf, 0, buf.length, c.off);
-      fs.closeSync(fd);
-    } catch (_) { return c; }
-    c.off = size;
-    if (c.rest) buf = Buffer.concat([c.rest, buf]);
-    const end = buf.lastIndexOf(10);
-    c.rest = end < buf.length - 1 ? buf.subarray(end + 1) : null;
-    if (end >= 0) {
-      const lines = buf.subarray(0, end).toString('utf8').split('\n');
-      if (c.skipFirst) { lines.shift(); c.skipFirst = false; }
-      for (const l of lines) {
-        if (l.length < 20 || !(l.includes('"type":"assistant"') || l.includes('"type":"user"'))) continue;
-        let m; try { m = JSON.parse(l); } catch (_) { continue; }
-        try { applyLine(c, m); } catch (_) { /* línea rara */ }
-      }
-    }
-  }
-  if (tCache.size > 8) { // olvida historiales viejos
-    const old = [...tCache.entries()].sort((a, b) => a[1].used - b[1].used)[0];
-    if (old && old[0] !== tp) tCache.delete(old[0]);
-  }
-  return c;
-}
-function planView(plan) {
-  const all = plan.filter((p) => !p.gone && p.t);
-  if (all.length <= 6) return all;
-  // muchas tareas: la que va, una antes y las que siguen (máximo 6)
-  let k = all.findIndex((p) => p.s === 'doing');
-  if (k < 0) k = all.findIndex((p) => p.s === 'todo');
-  if (k < 0) k = all.length - 1;
-  const from = Math.max(0, Math.min(k - 1, all.length - 6));
-  const view = all.slice(from, from + 6);
-  if (from > 0) view.unshift({ t: `${from} hecha${from > 1 ? 's' : ''}`, s: 'done', more: true });
-  return view;
-}
+// lo que Claude va haciendo, leído del historial de cada sesión (lista de tareas, mensajes, si lo interrumpiste)
+const { readTranscript, planView } = require('./status');
 const actSeen = new Map(); // sid -> { act, since }
 
 const DOT = { gray: '#9A9A9A', orange: '#D97757', yellow: '#F2C94C', green: '#4CC38A', red: '#EB5757' };
@@ -1073,10 +979,14 @@ function computeStatus(list, single) {
   const vig = list.filter((s) => s.age < 1800000);
   const vivas = vig.filter((s) => s.state === 'working' || s.state === 'attention').length;
   const by = (st) => vig.filter((s) => s.state === st).sort((a, b) => a.age - b.age)[0];
-  const info = by('attention') || by('working') || list.filter((s) => s.age < 3600000).sort((a, b) => a.age - b.age)[0];
+  let info = by('attention') || by('working') || list.filter((s) => s.age < 3600000).sort((a, b) => a.age - b.age)[0];
   if (!info) return { mode: 'sleep', key: '', hasInfo: false, showBubble: false, title: '', sub: '', dot: DOT.gray, extra: '' };
   let m = 'idle', dot = DOT.gray;
-  const sub0 = String(info.activity || '');
+  let sub0 = String(info.activity || '');
+  if ((info.state === 'working' || info.state === 'attention') && info.tp) {
+    const t = readTranscript(info.tp);
+    if (t && t.intr) { info = Object.assign({}, info, { state: 'idle', activity: 'Interrumpido' }); sub0 = 'Interrumpido'; }   // lo cortaste: ya no trabaja
+  }
   switch (info.state) {
     case 'attention': m = 'attention'; dot = DOT.yellow; break;
     case 'working':
@@ -1300,7 +1210,10 @@ function sendGroup() {
     if (p.sid) {
       const info = lastList.find((x) => x.sid === p.sid);
       const tr = info && info.tp ? readTranscript(info.tp) : null;
-      if (tr) for (const x of tr.says.slice(-3)) feed.push({ k: 's' + x.id, id: p.id, who: 'say', text: x.text, ts: x.ts || 0 });
+      if (tr) {
+        for (const x of tr.says.slice(-3)) feed.push({ k: 's' + x.id, id: p.id, who: 'say', text: x.text, ts: x.ts || 0 });
+        if (tr.ask) feed.push({ k: 's' + tr.ask.id, id: p.id, who: 'ysay', text: tr.ask.text, ts: tr.ask.ts });   // lo último que le escribiste en su sesión
+      }
     }
   }
   feed.sort((a, b) => a.ts - b.ts);
@@ -1699,7 +1612,14 @@ function describeTool(name, input) {
 }
 function stopChat(p) {
   const c = p && p.chat;
-  if (c && c.proc) { try { c.proc.kill(); } catch (_) { /* nada */ } c.proc = null; }
+  if (c && c.proc) { killTree(c.proc); c.proc = null; }
+}
+// en Windows, kill() solo cierra claude.exe: los comandos que lanzó seguirían corriendo; taskkill /T cierra todo el árbol
+function killTree(proc) {
+  try {
+    if (process.platform === 'win32' && proc.pid) spawn('taskkill', ['/PID', String(proc.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore', detached: true }).unref();
+    else proc.kill();
+  } catch (_) { try { proc.kill(); } catch (_e) { /* ya no estaba */ } }
 }
 const stopAllChats = () => { for (const p of pets.values()) stopChat(p); };
 
@@ -1775,11 +1695,16 @@ async function askApproval(p, j) {
   let detail = input.command || input.file_path || input.notebook_path || input.url || '';
   if (!detail) { try { detail = JSON.stringify(input, null, 2); } catch (_) { detail = ''; } }
   if (input.command && input.description) detail = String(input.description) + '\n\n' + detail;
+  // lo que no se alcanza a ver no se aprueba: más de 3000 caracteres se niega
+  if (String(detail).length > 3000) { log(`permiso de ${tool}: negado (demasiado largo para revisarlo)`); return { permitir: false }; }
+  // si nadie contesta en 5 minutos, la ventanita se cierra sola y cuenta como "Negar" (así la plática no se queda colgada)
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), 5 * 60000);
   const { response } = await dialog.showMessageBox({
-    type: 'question', title: APP_NAME, message: `${name} quiere usar ${tool}`, detail: String(detail).slice(0, 1500),
-    buttons: ['Permitir', 'Negar'], defaultId: 1, cancelId: 1, noLink: true,
-  });
-  log(`permiso de ${tool}: ${response === 0 ? 'permitido' : 'negado'}`);   // (sin guardar lo que pedía)
+    type: 'question', title: APP_NAME, message: `${name} quiere usar ${tool}`, detail: String(detail),
+    buttons: ['Permitir', 'Negar'], defaultId: 1, cancelId: 1, noLink: true, signal: ac.signal,
+  }).finally(() => clearTimeout(timer));
+  log(`permiso de ${tool}: ${response === 0 ? 'permitido' : ac.signal.aborted ? 'negado (nadie contestó)' : 'negado'}`);   // (sin guardar lo que pedía)
   return { permitir: response === 0 };
 }
 
@@ -1792,8 +1717,10 @@ function startApi() {
     const done = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(obj)); };
     if (req.method !== 'POST' || (req.url !== '/delegar' && req.url !== '/crear' && req.url !== '/aprobar')) return done(404, { error: 'no' });
     let body = '';
-    req.on('data', (c) => { body += c; if (body.length > 1e6) req.destroy(); });
+    let big = false;
+    req.on('data', (c) => { if (big) return; body += c; if (body.length > MAX_CONTENT + 2e5) { big = true; body = ''; } });
     req.on('end', async () => {
+      if (big) return done(413, { error: 'El contenido es demasiado grande.' });
       let j; try { j = JSON.parse(body); } catch (_) { return done(400, { error: 'json' }); }
       if (j.token !== api.token) return done(403, { error: 'contraseña' });
       const from = pets.get(Number(j.from));
@@ -1811,90 +1738,8 @@ function startApi() {
   srv.on('error', (e) => log('delegar: ' + e));
 }
 
-// ---------- crear archivos: solo nuevos y solo en Documentos\Claude Companion ----------
-const OUT_DIR = () => process.env.COMPANION_OUT || path.join(app.getPath('documents'), 'Claude Companion');
-const FORMATS = ['txt', 'md', 'html', 'pdf', 'png'];
-function safeName(n) {
-  n = String(n || '').replace(/\.(txt|md|html?|pdf|png)$/i, '').replace(/[<>:"/\\|?*\x00-\x1f]/g, ' ').replace(/\s+/g, ' ').trim().replace(/[. ]+$/, '').slice(0, 80);
-  if (/^(con|prn|aux|nul|com\d|lpt\d)$/i.test(n)) n = '_' + n;
-  return n || 'Archivo';
-}
-function freePath(dir, base, ext) {
-  let f = path.join(dir, `${base}.${ext}`);
-  for (let i = 2; fs.existsSync(f); i++) f = path.join(dir, `${base} (${i}).${ext}`);
-  return f;
-}
-// convierte una página HTML en PDF o PNG en una ventana oculta, sin JavaScript y sin poder navegar
-async function renderHtml(html, fmt, file) {
-  const tmpDir = path.join(BASE, 'render');
-  fs.mkdirSync(tmpDir, { recursive: true });
-  const tmp = path.join(tmpDir, `r-${Date.now()}-${Math.random().toString(36).slice(2, 6)}.html`);
-  if (!/<meta[^>]+charset/i.test(html)) html = '<meta charset="utf-8">' + html;
-  fs.writeFileSync(tmp, html, 'utf8');
-  // PNG: ventana "offscreen" (Windows no pinta las ventanas ocultas normales y la foto nunca llegaba)
-  const w = new BrowserWindow({
-    show: false, width: fmt === 'png' ? 1080 : 900, height: fmt === 'png' ? 400 : 1200, useContentSize: true,
-    webPreferences: { offscreen: fmt === 'png', javascript: false, sandbox: true, contextIsolation: true, nodeIntegration: false, partition: 'companion-render' },
-  });
-  w.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-  w.webContents.on('will-navigate', (e) => e.preventDefault());
-  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-  const work = (async () => {
-    await w.loadFile(tmp);
-    await w.webContents.insertCSS('::-webkit-scrollbar{display:none!important}');
-    await wait(400);                                // fuentes e imágenes
-    if (fmt === 'pdf') {
-      fs.writeFileSync(file, await w.webContents.printToPDF({ printBackground: true, pageSize: 'A4', margins: { marginType: 'default' } }));
-      return;
-    }
-    // mide lo que ocupa de verdad el contenido (sin espacio sobrante a la derecha ni abajo)
-    const dbg = w.webContents.debugger;
-    dbg.attach('1.3');
-    let size;
-    try {
-      const r = await dbg.sendCommand('Runtime.evaluate', { returnByValue: true, expression: `(() => {
-        let w = 0, h = 0;
-        for (const el of document.body.querySelectorAll('*')) { const b = el.getBoundingClientRect(); if (b.width && b.height) { w = Math.max(w, b.right); h = Math.max(h, b.bottom); } }
-        const cs = getComputedStyle(document.body);
-        return { w: w + parseFloat(cs.marginRight || 0) + parseFloat(cs.paddingRight || 0), h: h + parseFloat(cs.marginBottom || 0) + parseFloat(cs.paddingBottom || 0) };
-      })()` });
-      size = r && r.result && r.result.value;
-    } finally { try { dbg.detach(); } catch (_) { /* nada */ } }
-    const width = Math.min(4000, Math.max(200, Math.ceil((size && size.w) || 1080)));
-    const height = Math.min(16000, Math.max(200, Math.ceil((size && size.h) || 1200) + 24));
-    w.setContentSize(width, height);
-    await wait(600);
-    w.webContents.invalidate();
-    await wait(300);
-    fs.writeFileSync(file, (await w.webContents.capturePage()).toPNG());
-  })();
-  try {
-    await Promise.race([work, wait(60000).then(() => { throw new Error('Tardó demasiado en armar el archivo.'); })]);
-  } finally {
-    w.destroy();
-    fs.unlink(tmp, () => {});
-  }
-}
-async function createFile(p, a) {
-  const fmt = String(a.formato || '').toLowerCase().replace(/^\./, '').replace(/^htm$/, 'html');
-  if (!FORMATS.includes(fmt)) throw new Error('Formato no soportado. Usa: ' + FORMATS.join(', ') + '.');
-  const content = String(a.contenido || '');
-  if (!content.trim()) throw new Error('El contenido está vacío.');
-  if (content.length > 3e6) throw new Error('El contenido es demasiado grande.');
-  const dir = OUT_DIR();
-  fs.mkdirSync(dir, { recursive: true });
-  const file = freePath(dir, safeName(a.nombre), fmt);
-  if (fmt === 'txt') fs.writeFileSync(file, '﻿' + content.replace(/\r?\n/g, '\r\n'), 'utf8');   // con BOM: el bloc de notas lo abre bien
-  else if (fmt === 'md' || fmt === 'html') fs.writeFileSync(file, content, 'utf8');
-  else await renderHtml(content, fmt, file);
-  const who = p && p.alive ? recOf(p).name || 'Clawd' : 'Clawd';
-  log(`crear: ${who} guardó ${file}`);
-  // lo anota en su plática (y en la de quien lo invocó, si es ayudante) para mostrarlo en el globo
-  for (const q of [p, p && p.helperOf]) if (q && q.alive && q.chat && q.chat.proc) (q.madeFiles = q.madeFiles || []).push(file);
-  let abierto = false;
-  if (a.abrir) { const err = await shell.openPath(file); abierto = !err; if (err) log('crear: no se pudo abrir: ' + err); }
-  return { ruta: file, abierto };
-}
+const FILES = require('./files')({ app, BrowserWindow, shell, BASE, log, recOf });
+const { OUT_DIR, createFile, MAX_CONTENT } = FILES;
 // abrir un archivo que creó un Clawd (solo los de su carpeta)
 ipcMain.on('file:open', (_e, f) => {
   const dir = path.resolve(OUT_DIR()) + path.sep;
@@ -1904,6 +1749,7 @@ ipcMain.on('file:open', (_e, f) => {
 });
 
 // ---------- ayudantes: llegan, hacen su parte, la entregan y se van ----------
+const MAX_HELPERS = 6;   // ayudantes a la vez, entre todas las delegaciones
 const HELPER_MODELS = { haiku: 'claude-haiku-5-5', sonnet: 'claude-sonnet-5-5', opus: 'claude-opus-5-5' };
 // los Clawds que entrenaste para una función (sin contar ayudantes de paso)
 function trainedClawds() {
@@ -1968,6 +1814,12 @@ function runHelper(from, boss, t, resolve) {
   // ¿es para un Clawd que entrenaste? si está en pantalla lo hace él; si no, llega uno con su entrenamiento
   const tr = findTrained(t.clawd);
   if (tr && runTrained(from, boss, t, tr, resolve)) return;
+  // cada ayudante es otro "claude -p": con muchos a la vez (un ciclo, o una página que lo pidió) se gastan tokens sin control
+  if (livePets().filter((q) => q.helper).length >= MAX_HELPERS) {
+    log(`delegar: no llega otro ayudante (ya hay ${MAX_HELPERS})`);
+    resolve({ nombre: 'ayudante', modelo: String(t.modelo || ''), texto: `Ya hay ${MAX_HELPERS} ayudantes trabajando; espera a que terminen o hazlo tú.`, error: true, archivos: [] });
+    return;
+  }
   const trFam = tr && tr.rec.chat && familyOf(tr.rec.chat.model);
   const fam = HELPER_MODELS[String(t.modelo || '').toLowerCase()] ? String(t.modelo).toLowerCase() : trFam || 'sonnet';
   const p = new Pet(null);
@@ -2130,7 +1982,11 @@ function chatSend(p, text, opts) {
   groupDirty = true;
   return true;
 }
-ipcMain.handle('chat:send', (e, id, text, o) => { const p = petOf(e, id); return p ? chatSend(p, text, { delegate: !!(o && o.delegar) }) : false; });
+ipcMain.handle('chat:send', (e, id, text, o) => {
+  const p = petOf(e, id);
+  if (!p) { log(`chat:send ignorado (Clawd #${id}: ${pets.has(Number(id)) ? 'otra ventana' : 'no existe'})`); return false; }
+  return chatSend(p, text, { delegate: !!(o && o.delegar) });
+});
 
 // ---------- título de la plática (como el resto de las sesiones de la app) ----------
 function provisionalTitle(text) {
@@ -2893,6 +2749,13 @@ app.whenReady().then(async () => {
   screen.on('display-metrics-changed', reflowScreen);
   screen.on('display-added', reflowScreen);
   screen.on('display-removed', reflowScreen);
+  // al despertar la compu o desbloquear: Windows puede dejar las ventanas transparentes sin pintar o por debajo; se vuelven a poner y a dibujar
+  const wake = () => setTimeout(() => {
+    for (const e of shared.values()) if (e.win && !e.win.isDestroyed()) { e.win.setAlwaysOnTop(true, 'floating'); e.win.showInactive(); e.win.webContents.invalidate(); }
+    reflowScreen();
+  }, 1500);
+  powerMonitor.on('resume', wake);
+  powerMonitor.on('unlock-screen', wake);
 });
 // la barra que se oculta sola subió o bajó: los Clawds (y el chat) suben o bajan con ella
 function followTaskbar() {
