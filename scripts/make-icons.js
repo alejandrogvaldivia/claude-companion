@@ -60,7 +60,7 @@ function clawd(size) {
   return png(size, size, buf);
 }
 
-const out = path.join(__dirname, '..', 'assets');
+const out = path.join(__dirname, '..', 'app', 'assets');
 const sizes = [16, 20, 24, 32, 40, 48, 64, 128, 256];
 const pngs = sizes.map((s) => ({ s, data: clawd(s) }));
 fs.writeFileSync(path.join(out, 'tray.png'), clawd(32));
@@ -75,4 +75,5 @@ for (const { s, data } of pngs) {
   entries.push(e); offset += data.length;
 }
 fs.writeFileSync(path.join(out, 'icon.ico'), Buffer.concat([header, ...entries, ...pngs.map((p) => p.data)]));
+fs.writeFileSync(path.join(__dirname, '..', 'build', 'icon.png'), clawd(1024));   // el de Mac (pide 512 px o más)
 console.log('íconos listos:', sizes.join(', '));

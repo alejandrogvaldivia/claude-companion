@@ -6,12 +6,20 @@
 // Modos: "escritorio" (una ventana por Clawd), "escritorio en grupo" (juntitos, pasean y
 // conviven) y "barra de tareas" (minis que pasean sobre la barra).
 'use strict';
-const { app, BrowserWindow, ipcMain, screen, Menu, Tray, shell, clipboard, powerMonitor } = require('electron');
+const { app, BrowserWindow, ipcMain, screen, Menu, Tray, shell, clipboard, powerMonitor, nativeImage } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { spawn } = require('child_process');
 const setup = require('./setup');
+const IS_MAC = process.platform === 'darwin';
+// en Mac, una app abierta desde el Finder no hereda el PATH de la terminal (node, npx, claude de Homebrew…)
+if (IS_MAC) {
+  try { process.env.PATH = require('child_process').execFileSync(process.env.SHELL || '/bin/zsh', ['-ilc', 'printf %s "$PATH"'], { encoding: 'utf8', timeout: 4000 }).trim() || process.env.PATH; } catch (_) { /* se queda el de siempre */ }
+  process.env.PATH = [process.env.PATH, '/opt/homebrew/bin', '/usr/local/bin', path.join(os.homedir(), '.local', 'bin')].join(':');
+}
+// carpeta de datos de las apps: %APPDATA% en Windows, ~/Library/Application Support en Mac (ahí vive Claude Desktop)
+const APPDATA = process.env.APPDATA || app.getPath('appData');
 
 const BASE = setup.BASE;                    // ~/.claude/claude-companion
 // (las variables COMPANION_* son solo para pruebas: carpeta de sesiones, config y registro aparte)
@@ -34,18 +42,23 @@ function pickClaude() {
     if (fs.existsSync(CLAUDE_CLI)) found.push({ exe: CLAUDE_CLI, v: vs.sort((a, b) => verNum(b) - verNum(a))[0] || '0.0.0' });
   } catch (_) { if (fs.existsSync(CLAUDE_CLI)) found.push({ exe: CLAUDE_CLI, v: '0.0.0' }); }
   // las que trae Claude Desktop
-  const root = path.join(process.env.APPDATA || '', 'Claude', 'claude-code');
+  const root = path.join(APPDATA, 'Claude', 'claude-code');
+  // (en Mac puede venir suelto o dentro de un claude.app)
+  const bins = process.platform === 'win32' ? ['claude.exe'] : ['claude', path.join('claude.app', 'Contents', 'MacOS', 'claude')];
   try {
     for (const v of fs.readdirSync(root)) {
       if (!/^\d+\.\d+\.\d+$/.test(v)) continue;
       for (const sub of fs.readdirSync(path.join(root, v))) {
-        const exe = path.join(root, v, sub, 'claude.exe');
-        if (fs.existsSync(exe)) found.push({ exe, v });
+        for (const b of bins) {
+          const exe = path.join(root, v, sub, b);
+          if (fs.existsSync(exe) && !fs.statSync(exe).isDirectory()) { found.push({ exe, v }); break; }
+        }
       }
     }
   } catch (_) { /* no hay */ }
   found.sort((a, b) => verNum(b.v) - verNum(a.v));
-  return found[0] || { exe: CLAUDE_CLI, v: '?' };
+  // en Mac también puede estar instalado con npm/Homebrew: se busca en el PATH
+  return found[0] || { exe: IS_MAC ? 'claude' : CLAUDE_CLI, v: '?' };
 }
 let claudePick = pickClaude();
 let CLAUDE = claudePick.exe;
@@ -54,7 +67,7 @@ setInterval(() => { const n = pickClaude(); if (n.exe !== CLAUDE) { claudePick =
 const RES = app.isPackaged ? process.resourcesPath : path.join(__dirname, '..');
 const WATCHER = path.join(RES, 'bin', 'clawd.exe');
 const HOOK_SRC = path.join(RES, 'hook', 'hook.js');
-const ICON = path.join(__dirname, 'assets', 'icon.ico');
+const ICON = path.join(__dirname, 'assets', IS_MAC ? 'icon-256.png' : 'icon.ico');
 const APP_ID = 'com.claudecompanion.app';
 const APP_NAME = 'Claude Companion';
 // cómo se abre al iniciar Windows (instalado: el .exe; en desarrollo: electron + la carpeta)
@@ -143,7 +156,9 @@ function familyOf(model) {
 const argv = process.argv.slice(1);
 function arg(name) { const i = argv.indexOf(name); return i >= 0 ? (argv[i + 1] || '') : null; }
 const SHOT = arg('--shot');
-const BACKGROUND = argv.includes('--background');
+// (en Mac el inicio de sesión no pasa argumentos: si la compu acaba de prender, cuenta como segundo plano)
+// shortcut: os.uptime() < 3 min aproxima "lo abrió el inicio de sesión"; cambiar si macOS da una forma fiable
+const BACKGROUND = argv.includes('--background') || (IS_MAC && os.uptime() < 180);
 const OPTS = {
   demo: arg('--demo'),
   hover: argv.includes('--hover'),
@@ -460,6 +475,7 @@ function ensureShared(d) {
   });
   e.win = win;
   win.setAlwaysOnTop(true, 'floating');
+  if (IS_MAC) win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });   // también en otros escritorios y sobre apps en pantalla completa
   armOnTop(win);
   win.setIgnoreMouseEvents(true, { forward: true });
   win.loadFile(path.join(__dirname, 'index.html'));
@@ -681,6 +697,7 @@ function createPetWindow(p, entrance, o = {}) {
   p.identityKey = '';
   pets.set(p.id, p);
   win.setAlwaysOnTop(true, 'floating');
+  if (IS_MAC) win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });   // también en otros escritorios y sobre apps en pantalla completa
   armOnTop(win);
   win.setIgnoreMouseEvents(true, { forward: true });
   win.loadFile(path.join(__dirname, 'index.html'));
@@ -1651,7 +1668,7 @@ const COMPANION_MCP = path.join(RES, 'mcp', 'companion-mcp.js');
 function readExtensions() {
   const out = {};
   const files = [
-    path.join(process.env.APPDATA || '', 'Claude', 'claude_desktop_config.json'),
+    path.join(APPDATA, 'Claude', 'claude_desktop_config.json'),
     path.join(os.homedir(), '.claude.json'),
   ];
   for (const f of files) {
@@ -2136,7 +2153,7 @@ ipcMain.on('model:menu', (e, id) => { openModelPopup(petOf(e, id)); });
 
 // ---------- abrir en Claude Desktop ----------
 // La app guarda qué sesión suya corresponde a cada sesión de Claude Code (claude-code-sessions/…/local_*.json).
-const DESK_SES = path.join(process.env.APPDATA || '', 'Claude', 'claude-code-sessions');
+const DESK_SES = path.join(APPDATA, 'Claude', 'claude-code-sessions');
 let deskMap = new Map(), deskScanAt = 0;
 function scanDesk() {
   const m = new Map();
@@ -2228,7 +2245,20 @@ if (-not ($procs | Where-Object { $_.Id -eq $fp })) { exit 3 }
 [MCW]::keybd_event(0x56, 0, 2, [UIntPtr]::Zero); [MCW]::keybd_event(0x11, 0, 2, [UIntPtr]::Zero)
 exit 0
 `;
+// Mac: lo mismo con AppleScript (pegar pide el permiso de Accesibilidad; sin él, se queda copiado)
+const PASTE_OSA = `tell application "Claude" to activate
+delay 0.4
+tell application "System Events"
+  if name of first application process whose frontmost is true is not "Claude" then return "3"
+  keystroke "v" using command down
+end tell
+return "0"`;
 function pasteIntoClaude() {
+  if (IS_MAC) {
+    return new Promise((resolve) => {
+      require('child_process').execFile('osascript', ['-e', PASTE_OSA], { timeout: 12000 }, (err, out) => resolve(err ? 2 : Number(String(out).trim()) || 0));
+    });
+  }
   return new Promise((resolve) => {
     const enc = Buffer.from(PASTE_PS, 'utf16le').toString('base64');
     let done = false;
@@ -2278,10 +2308,14 @@ function ps(script) {
   spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', enc], { windowsHide: true, stdio: 'ignore' })
     .on('error', () => {});
 }
-function focusClaude() { ps("$w = New-Object -ComObject WScript.Shell; [void]$w.AppActivate('Claude')"); }
+function focusClaude() {
+  if (IS_MAC) { spawn('open', ['-a', 'Claude'], { stdio: 'ignore' }).on('error', () => {}); return; }
+  ps("$w = New-Object -ComObject WScript.Shell; [void]$w.AppActivate('Claude')");
+}
 ipcMain.on('focus-claude', focusClaude);
 ipcMain.on('dictate', (e, id) => {
   const p = petOf(e, id); const w = p ? p.win : anyWin(); if (w) w.focus();
+  if (IS_MAC) { Menu.sendActionToFirstResponder('startDictation:'); return; }   // el dictado del sistema (Edición → Iniciar dictado)
   ps(`Add-Type -Name K -Namespace M -MemberDefinition '[DllImport("user32.dll")] public static extern void keybd_event(byte a, byte b, uint c, System.UIntPtr d);'
 [M.K]::keybd_event(0x5B,0,0,[System.UIntPtr]::Zero); [M.K]::keybd_event(0x48,0,0,[System.UIntPtr]::Zero)
 [M.K]::keybd_event(0x48,0,2,[System.UIntPtr]::Zero); [M.K]::keybd_event(0x5B,0,2,[System.UIntPtr]::Zero)`);
@@ -2369,10 +2403,14 @@ let autoUpdater = null;
 function initUpdates() {
   if (!app.isPackaged || process.env.COMPANION_CFG) return;          // en desarrollo y en pruebas, no
   try { ({ autoUpdater } = require('electron-updater')); } catch (e) { log('actualizador: ' + e); return; }
-  autoUpdater.autoDownload = true;
-  autoUpdater.autoInstallOnAppQuit = true;
+  // Mac: sin firma de Apple no se puede instalar sola; solo avisa y el menú abre la página para bajarla
+  autoUpdater.autoDownload = !IS_MAC;
+  autoUpdater.autoInstallOnAppQuit = !IS_MAC;
   autoUpdater.logger = { info: () => {}, warn: (m) => log('actualizador: ' + m), error: (m) => log('actualizador: ' + m), debug: () => {} };
-  autoUpdater.on('update-available', (i) => log(`actualizador: hay versión ${i.version}, bajándola`));
+  autoUpdater.on('update-available', (i) => {
+    log(`actualizador: hay versión ${i.version}${IS_MAC ? '' : ', bajándola'}`);
+    if (IS_MAC) { update.ready = i.version; refreshTray(); }
+  });
   autoUpdater.on('update-downloaded', (i) => {
     update.ready = i.version;
     log(`actualizador: versión ${i.version} lista`);
@@ -2419,7 +2457,9 @@ function trayMenu() {
     ? { label: 'Cerrar', click: hideAll }
     : { label: 'Mostrar a Clawd', click: showAll };
   const hooked = setup.hooksInstalled();
-  const upd = update.ready
+  const upd = update.ready && IS_MAC
+    ? [{ label: `Bajar la versión ${update.ready}…`, click: () => shell.openExternal('https://github.com/alejandrogvaldivia/claude-companion/releases/latest') }, { type: 'separator' }]
+    : update.ready
     ? [{ label: `Actualizar a la versión ${update.ready} (reinicia)`, click: installUpdate }, { type: 'separator' }]
     : [];
   return Menu.buildFromTemplate([
@@ -2434,10 +2474,11 @@ function trayMenu() {
 }
 function refreshTray() { if (tray) tray.setContextMenu(trayMenu()); }
 function createTray() {
-  tray = new Tray(ICON);
+  // (Mac no lee .ico y la barra de menús pide un ícono chiquito)
+  tray = new Tray(IS_MAC ? nativeImage.createFromPath(path.join(__dirname, 'assets', 'tray.png')).resize({ width: 18, height: 18 }) : ICON);
   tray.setToolTip(APP_NAME);
   refreshTray();
-  tray.on('click', () => tray.popUpContextMenu());
+  if (!IS_MAC) tray.on('click', () => tray.popUpContextMenu());     // en Mac el clic ya abre el menú
 }
 
 // menú de clic derecho sobre un Clawd
@@ -2600,6 +2641,17 @@ function startWatcher() {
   const fake = process.env.COMPANION_FAKE_WATCHER;
   if (fake) {
     watcher = spawn('node', [fake], { windowsHide: true, stdio: ['pipe', 'pipe', 'ignore'] });
+  } else if (IS_MAC) {
+    // Mac: no hay clawd.exe; cada 2 s se revisa si corre Claude.app (no "Claude Companion.app" ni el claude de la terminal).
+    // La pantalla completa y el Dock ya los respeta workArea.
+    let last = null;
+    const check = () => require('child_process').execFile('pgrep', ['-f', 'Claude.app/Contents/MacOS/Claude'], (err) => {
+      const open = !err;
+      if (open !== last) { last = open; onClaude(open); }
+    });
+    check();
+    setInterval(check, 2000);
+    return;
   } else {
     if (!fs.existsSync(WATCHER)) { log('no encontré el vigilante clawd.exe'); return; }
     watcher = spawn(WATCHER, [String(process.pid)], { windowsHide: true, stdio: ['pipe', 'pipe', 'ignore'] });   // (le paso mi pid: él mantiene mis ventanas encima)
@@ -2698,6 +2750,7 @@ function ensureIntegration() {
 //  Ciclo de vida
 // =====================================================================
 app.whenReady().then(async () => {
+  if (IS_MAC && app.dock) app.dock.hide();     // vive en la barra de menús, sin ícono en el Dock
   if (SHOT) { const p = new Pet(null); createPetWindow(p, !!arg('--entrance')); return; }
   log(`arranque: barra de tareas${BACKGROUND ? ' (segundo plano)' : ''} · Claude Code ${claudePick.v}`);
   try { fs.unlinkSync(APAGADA); } catch (_) { /* no existía */ }

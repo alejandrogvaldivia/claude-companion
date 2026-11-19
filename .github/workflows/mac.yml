@@ -1,0 +1,62 @@
+# Versión de Mac: se arma y se prueba en una Mac de GitHub (desde Windows no se puede).
+# - En cada push: pruebas + armar la app + abrirla y revisar su registro.
+# - Al publicar un Release (npm run release): además sube el .dmg, el .zip y latest-mac.yml a ese Release.
+name: Mac
+on:
+  push:
+  workflow_dispatch:
+  release:
+    types: [published]
+permissions:
+  contents: write
+jobs:
+  mac:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+      - run: npm test
+      - name: Armar la app
+        run: npm run dist:mac
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - name: Abrirla y revisar que arranque sin errores
+        run: |
+          set -u
+          T="$RUNNER_TEMP/cc"; mkdir -p "$T"
+          APP="dist/mac-arm64/Claude Companion.app"
+          codesign -dv "$APP" 2>&1 | head -5 || true
+          COMPANION_HOME="$T" COMPANION_CFG="$T/config.json" COMPANION_LOG="$T/companion.log" \
+          COMPANION_SETTINGS="$T/settings.json" COMPANION_OUT="$T/out" COMPANION_TEST_AUTOCONNECT=1 \
+            "$APP/Contents/MacOS/Claude Companion" > "$T/stdout.txt" 2>&1 &
+          PID=$!
+          sleep 25
+          kill $PID 2>/dev/null || true
+          echo "--- registro"; cat "$T/companion.log" || true
+          echo "--- salida"; tail -40 "$T/stdout.txt" || true
+          echo "--- settings.json"; cat "$T/settings.json" || true
+          grep -q 'arranque' "$T/companion.log"
+          grep -q 'hooks instalados' "$T/companion.log"
+          ! grep -E ' error: |cayó' "$T/companion.log"
+          # el hook, con el comando tal cual quedó en settings.json, anota la sesión
+          CMD=$(node -e "console.log(require('$T/settings.json').hooks.Stop[0].hooks[0].command)")
+          echo '{"session_id":"mac1","hook_event_name":"Stop","cwd":"/tmp"}' | COMPANION_HOME="$T" sh -c "$CMD"
+          ls "$T/sesiones/mac1.json"
+      - name: Subir al Release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.event.release.tag_name }}" dist/*.dmg dist/*.zip dist/*.blockmap dist/latest-mac.yml --clobber
+      - uses: actions/upload-artifact@v4
+        if: github.event_name != 'release'
+        with:
+          name: claude-companion-mac
+          path: |
+            dist/*.dmg
+            dist/*.zip
+          retention-days: 7

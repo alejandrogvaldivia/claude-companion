@@ -41,6 +41,13 @@ function desktopAsars() {
       if (/^app-/.test(d) && fs.existsSync(a)) out.push(a);
     }
   } catch (_) { /* no está instalado así */ }
+  // Mac: dentro de Claude.app (en Aplicaciones del sistema o del usuario)
+  if (process.platform === 'darwin') {
+    for (const dir of ['/Applications', path.join(HOME, 'Applications')]) {
+      const a = path.join(dir, 'Claude.app', 'Contents', 'Resources', 'ion-dist.asar');
+      if (fs.existsSync(a)) out.push(a);
+    }
+  }
   return out.sort().reverse();                       // la versión más nueva primero
 }
 function findLottie(nm) {
@@ -137,12 +144,15 @@ const fwd = (p) => p.replace(/\\/g, '/');
 const norm = (cmd) => String(cmd || '').replace(/\\/g, '/').toLowerCase();
 const isMine = (cmd) => norm(cmd).includes(fwd(HOOK_FILE).toLowerCase());
 const isOurs = (cmd) => isMine(cmd) || /claude-companion\/+hook\.js|\.claude\/+mascota\/+hook\.js/.test(norm(cmd));
-function hasNode() {
-  try { execFileSync(process.platform === 'win32' ? 'where' : 'which', ['node'], { stdio: 'ignore', windowsHide: true }); return true; } catch (_) { return false; }
+function nodePath() {
+  try { return execFileSync(process.platform === 'win32' ? 'where' : 'which', ['node'], { encoding: 'utf8', windowsHide: true }).split(/\r?\n/)[0].trim() || null; } catch (_) { return null; }
 }
 // el hook es un script de Node; si no hay Node instalado, lo corre el propio Claude Companion en modo Node
+// (en Mac va con la ruta completa: Claude Desktop no siempre tiene el PATH de la terminal, p. ej. Homebrew o nvm)
 function hookCommand(exe) {
-  if (hasNode()) return `node "${fwd(HOOK_FILE)}"`;
+  const node = nodePath();
+  if (node && process.platform === 'darwin') return `"${node}" "${HOOK_FILE}"`;
+  if (node) return `node "${fwd(HOOK_FILE)}"`;
   return `ELECTRON_RUN_AS_NODE=1 "${fwd(exe)}" "${fwd(HOOK_FILE)}"`;
 }
 function copyHook(src) {

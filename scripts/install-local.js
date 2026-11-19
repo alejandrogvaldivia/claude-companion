@@ -52,7 +52,7 @@ const size = (p) => { try { return fs.statSync(p).size; } catch (_) { return -1;
     const setup = path.join(ROOT, 'dist', pkg.build.nsis.artifactName.replace('${version}', pkg.version));
     run(`"${setup}" /S --updated`);
   } else {
-    const files = ['app.asar', ...pkg.build.extraResources.map((r) => r.to)];
+    const files = ['app.asar', ...[...pkg.build.extraResources, ...pkg.build.win.extraResources].map((r) => r.to)];
     for (const f of files) {
       const dst = path.join(INST, 'resources', f);
       fs.mkdirSync(path.dirname(dst), { recursive: true });
