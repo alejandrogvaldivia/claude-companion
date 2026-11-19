@@ -28,7 +28,12 @@ jobs:
       - name: Abrirla y revisar que arranque sin errores
         run: |
           set -u
-          T="$RUNNER_TEMP/cc"; mkdir -p "$T"
+          T="$RUNNER_TEMP/cc"; mkdir -p "$T/assets"
+          # animaciones de relleno (aquí no hay Claude Desktop y claude.ai bloquea servidores): solo para que aparezcan los Clawds
+          GIF=R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==
+          for f in Clawd-Waving Clawd-Lurking Clawd-Cloud-once Clawd-RacingCar Clawd-Dancing Extra-Stopped; do echo $GIF | base64 -d > "$T/assets/$f.gif"; done
+          echo iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg== | base64 -d > "$T/assets/Clawd-Still.png"
+          for f in laptop snooze stretching; do echo '{"v":"5.7.4","fr":30,"ip":0,"op":30,"w":100,"h":100,"nm":"x","layers":[]}' > "$T/assets/clawd-$f.json"; done
           APP="dist/mac-arm64/Claude Companion.app"
           codesign -dv "$APP" 2>&1 | head -5 || true
           COMPANION_HOME="$T" COMPANION_CFG="$T/config.json" COMPANION_LOG="$T/companion.log" \
