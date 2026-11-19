@@ -41,7 +41,7 @@ Clawds en tu escritorio: **uno por cada sesión de Claude Code**. Te dejan ver d
 
 ## Requisitos
 
-- **Windows 10 u 11.**
+- **Windows 10 u 11**, o **macOS 11 o más nuevo** (Apple Silicon o Intel).
 - **Claude Desktop y/o Claude Code.** Claude Companion usa el Claude Code más nuevo que encuentre: el de la terminal o el que trae Claude Desktop.
 - **Internet la primera vez**, para preparar las animaciones de Clawd (ver abajo).
 
@@ -54,6 +54,15 @@ Clawds en tu escritorio: **uno por cada sesión de Claude Code**. Te dejan ver d
    - **te pregunta si puede conectarse a Claude Code.** Si aceptas, agrega unos *hooks* a `~/.claude/settings.json` y guarda un respaldo antes.
 4. Abre Claude Desktop: tus Clawds llegan caminando. Claude Companion arranca solo con Windows y aparece cada vez que abres Claude.
 
+### En Mac
+
+1. Descarga de [Releases](../../releases) el `.dmg` de tu Mac: `mac-arm64` (Apple Silicon: M1, M2…) o `mac-x64` (Intel).
+2. Ábrelo y arrastra **Claude Companion** a **Aplicaciones**.
+3. La primera vez macOS lo bloquea porque no está firmado con Apple: ábrelo, cierra el aviso y ve a **Ajustes del Sistema → Privacidad y seguridad → Abrir de todas formas**.
+4. Vive en la **barra de menús** (arriba a la derecha), no en el Dock. Lo demás es igual que en Windows.
+5. **"Mandar a su sesión"** pide el permiso de **Accesibilidad** para pegar en Claude. Si no lo das, el texto se queda copiado y tú lo pegas con ⌘V.
+6. **Actualizaciones:** avisa en el menú ("Bajar la versión…") y abre la página para bajarla; en Mac no se instala sola.
+
 ### Desde el código
 
 ```bash
@@ -63,7 +72,7 @@ npm install        # también compila el vigilante (bin/clawd.exe) con el compil
 npm start
 ```
 
-Para generar el instalador: `npm run dist`. Queda en `dist/`.
+Para generar el instalador: `npm run dist` (Windows) o `npm run dist:mac` (en una Mac). Queda en `dist/`.
 
 ## Actualizaciones
 
@@ -89,6 +98,7 @@ El comando:
 2. Genera el instalador.
 3. Hace commit y push.
 4. Crea el Release con lo que necesita el actualizador: el `.exe`, su `.blockmap` y `latest.yml`.
+5. Al publicarse el Release, GitHub Actions arma la versión de Mac en una Mac de GitHub, la prueba y le agrega los `.dmg` y `.zip` (tarda unos minutos).
 
 ## Cómo funciona (y privacidad)
 
@@ -104,6 +114,8 @@ El comando:
 ## Desinstalar
 
 Desinstálalo desde **Configuración → Aplicaciones**. El desinstalador quita los hooks de `settings.json` y el inicio con Windows.
+
+En Mac: primero quita los hooks (ícono de la barra de menús → **Conectado a Claude Code**), luego quítalo de **Ajustes del Sistema → General → Ítems de inicio** y manda la app a la Papelera.
 
 También puedes desconectar los hooks sin desinstalar: ícono de la bandeja → **Conectado a Claude Code**.
 
@@ -121,7 +133,7 @@ Las animaciones de Clawd son de Anthropic y **no vienen en este repositorio**. C
 
 ## English summary
 
-**Claude Companion** is an unofficial, fan-made Windows desktop companion: one pixel Clawd per Claude Code session.
+**Claude Companion** is an unofficial, fan-made Windows and macOS desktop companion: one pixel Clawd per Claude Code session.
 
 - Each Clawd shows what its session is doing: task list, current action, interim messages, and permission requests.
 - Its size follows the model.
