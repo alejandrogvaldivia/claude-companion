@@ -36,12 +36,14 @@ jobs:
             "$APP/Contents/MacOS/Claude Companion" > "$T/stdout.txt" 2>&1 &
           PID=$!
           sleep 25
+          screencapture -x "$T/pantalla.png" || true
           kill $PID 2>/dev/null || true
           echo "--- registro"; cat "$T/companion.log" || true
           echo "--- salida"; tail -40 "$T/stdout.txt" || true
           echo "--- settings.json"; cat "$T/settings.json" || true
           grep -q 'arranque' "$T/companion.log"
           grep -q 'hooks instalados' "$T/companion.log"
+          grep -q ' aparece' "$T/companion.log"
           ! grep -E ' error: |cayó' "$T/companion.log"
           # el hook, con el comando tal cual quedó en settings.json, anota la sesión
           CMD=$(node -e "console.log(require('$T/settings.json').hooks.Stop[0].hooks[0].command)")
@@ -59,4 +61,12 @@ jobs:
           path: |
             dist/*.dmg
             dist/*.zip
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: prueba-mac
+          path: |
+            ${{ runner.temp }}/cc/pantalla.png
+            ${{ runner.temp }}/cc/companion.log
           retention-days: 7

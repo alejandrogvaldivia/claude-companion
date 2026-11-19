@@ -158,7 +158,7 @@ function arg(name) { const i = argv.indexOf(name); return i >= 0 ? (argv[i + 1] 
 const SHOT = arg('--shot');
 // (en Mac el inicio de sesión no pasa argumentos: si la compu acaba de prender, cuenta como segundo plano)
 // shortcut: os.uptime() < 3 min aproxima "lo abrió el inicio de sesión"; cambiar si macOS da una forma fiable
-const BACKGROUND = argv.includes('--background') || (IS_MAC && os.uptime() < 180);
+const BACKGROUND = argv.includes('--background') || (IS_MAC && os.uptime() < 180 && !process.env.COMPANION_CFG);
 const OPTS = {
   demo: arg('--demo'),
   hover: argv.includes('--hover'),
@@ -2695,7 +2695,7 @@ async function firstRun() {
   const r = await setup.ensureAssets({ net, BrowserWindow, log });
   if (r.missing.length) {
     log('faltan animaciones: ' + r.missing.join(', ') + ' · ' + r.problems.join(' | '));
-    dialog.showMessageBox({
+    if (!process.env.COMPANION_CFG) dialog.showMessageBox({   // (en pruebas no: en Mac este aviso detiene todo hasta que lo cierras)
       type: 'warning', title: APP_NAME, message: 'No pude preparar todas las animaciones de Clawd',
       detail: r.problems.join('\n') + '\n\nRevisa tu internet y que Claude Desktop esté instalado, y vuelve a abrir Claude Companion.',
     }).catch(() => {});
@@ -2722,7 +2722,7 @@ async function connectHooks(fromMenu) {
     if (response !== 0) { refreshTray(); return; }
   }
   try { const cmd = setup.installHooks(process.execPath, HOOK_SRC); cfg.hooksOn = true; saveCfg(); log('hooks instalados: ' + cmd); }
-  catch (e) { dialog.showErrorBox(APP_NAME, 'No pude conectar con Claude Code: ' + e.message); }
+  catch (e) { log('hooks: ' + e); dialog.showErrorBox(APP_NAME, 'No pude conectar con Claude Code: ' + e.message); }
   refreshTray();
 }
 function disconnectHooks() {
