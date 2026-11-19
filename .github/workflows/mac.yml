@@ -18,7 +18,7 @@ jobs:
           ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref }}
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
       - run: npm ci
       - run: npm test
       - name: Armar la app
